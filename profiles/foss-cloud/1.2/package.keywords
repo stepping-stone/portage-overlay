@@ -1,5 +1,6 @@
 sys-cluster/glusterfs amd64
 sys-kernel/gentoo-sources amd64
+sys-kernel/linux-headers amd64
 
 # required for Qemu
 sys-firmware/seabios amd64
