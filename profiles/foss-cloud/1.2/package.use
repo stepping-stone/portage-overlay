@@ -11,3 +11,6 @@ net-fs/cifs-utils ads creds upcall
 
 # Build GlusterFS with the blockdevice translator since we use LVM2 anyway and it may come in handy
 sys-cluster/glusterfs bd-xlator
+
+# Enable ldap support for storing ssh public keys (mainly to get the schema)
+net-misc/openssh ldap
