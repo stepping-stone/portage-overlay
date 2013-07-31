@@ -25,7 +25,7 @@ RDEPEND="dev-perl/Config-IniFiles
 	dev-perl/LockFile-Simple
 	virtual/perl-File-Path
 	dev-perl/perl-ldap
-	dev-perl/Net-SMTP-TLS
+	dev-perl/Net-SMTPS
 	dev-perl/Net-OpenSSH
 	dev-perl/Text-CSV
 	dev-perl/IO-String
