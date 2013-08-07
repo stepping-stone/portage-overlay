@@ -14,3 +14,5 @@ sys-cluster/glusterfs bd-xlator
 
 # Enable ldap support for storing ssh public keys (mainly to get the schema)
 net-misc/openssh ldap
+
+sys-apps/smartmontools caps

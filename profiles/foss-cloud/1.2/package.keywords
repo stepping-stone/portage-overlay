@@ -33,3 +33,8 @@ dev-perl/Net-SMTPS amd64
 
 # 1.8 is the stable/old branch for Zabbix, we want latest
 =net-analyzer/zabbix-1.8* amd64
+
+# require latest
+=sys-apps/smartmontools-6* amd64
+sys-apps/haveged amd64
+sys-apps/lm_sensors amd64
