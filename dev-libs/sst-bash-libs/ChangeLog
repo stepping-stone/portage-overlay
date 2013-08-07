@@ -1,0 +1,10 @@
+# ChangeLog for dev-libs/sst-bash-libs
+# Copyright 1999-2013 Gentoo Foundation; Distributed under the GPL v2
+# $Header: $
+
+*sst-bash-libs-0.0.1 (09 Apr 2013)
+
+  09 Apr 2013; Christian Affolter <c.affolter@stepping-stone.ch>
+  +sst-bash-libs-0.0.1.ebuild:
+  Initial commit.
+
