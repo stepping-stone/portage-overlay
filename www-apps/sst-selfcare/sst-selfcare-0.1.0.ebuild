@@ -4,6 +4,7 @@
 
 EAPI=5
 
+MY_P="selfcare-${PV}"
 YII_PV="1.1.13"
 
 DESCRIPTION="stepping stone Selfcare Webinterface"
@@ -19,6 +20,10 @@ DEPEND=""
 RDEPEND="virtual/httpd-php
 	dev-lang/php:5.4
 	dev-php/yii:${YII_PV}"
+
+RESTRICT="fetch"
+
+S="${WORKDIR}/${MY_P}"
 
 src_configure() {
 	sed -i \
@@ -52,14 +57,11 @@ src_install() {
 
 #	fperms 640 "/var/www/localhost/htdocs/vm-manager/vm_config.php"
 #	fowners root:apache "/var/www/localhost/htdocs/vm-manager/vm_config.php"
- 
-	fperms 770 "/var/www/selfcare/htdocs/assets/"
-	fperms 770 "/var/www/selfcare/htdocs/images/uploads/"
-	fperms 770 "/var/www/selfcare/htdocs/protected/runtime/"
-	fowners root:apache "/var/www/selfcare/htdocs/assets/"
-	fowners root:apache "/var/www/selfcare/htdocs/images/uploads/"
-	fowners root:apache "/var/www/selfcare/htdocs/protected/runtime/"
 
-	echo 'CONFIG_PROTECT="/var/www/selfcare/htdocs/vm_config.php"' > "${T}/99${PN}"
-	doenvd "${T}/99${PN}"
+	keepdir /var/www/selfcare/htdocs/{assets,protected/runtime}
+	fperms 770 /var/www/selfcare/htdocs/{assets,protected/runtime}
+	fowners root:apache /var/www/selfcare/htdocs/{assets,protected/runtime}
+
+#	echo 'CONFIG_PROTECT="/var/www/selfcare/htdocs/vm_config.php"' > "${T}/99${PN}"
+#	doenvd "${T}/99${PN}"
 }
