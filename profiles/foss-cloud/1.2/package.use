@@ -16,3 +16,4 @@ sys-cluster/glusterfs bd-xlator
 net-misc/openssh ldap
 
 sys-apps/smartmontools caps
+dev-lang/php zip
