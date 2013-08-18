@@ -23,6 +23,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/haveged-1.7a
 	>=sys-apps/smartmontools-6.1
 	>=sys-apps/lm_sensors-3.3.4
+	>=app-admin/ulogd-2
 	~app-misc/fc-misc-scripts-1.2.3
 	~net-nds/sst-ldap-schemas-1.2.9
 	~sys-apps/fc-node-integration-1.2.18.2
