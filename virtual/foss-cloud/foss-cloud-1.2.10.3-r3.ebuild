@@ -23,15 +23,14 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/haveged-1.7a
 	>=sys-apps/smartmontools-6.1
 	>=sys-apps/lm_sensors-3.3.4
-	>=app-admin/ulogd-2
 	~app-misc/fc-misc-scripts-1.2.3
 	~net-nds/sst-ldap-schemas-1.2.9
 	~sys-apps/fc-node-integration-1.2.18.2
 	~sys-apps/fc-prov-backup-kvm-1.0.11.1
 	~x11-themes/fc-artwork-1.0.4
 	~www-apps/vm-manager-1.2.18.2
-	~sys-apps/fc-configuration-1.2.16.3
-	~sys-kernel/foss-cloud-bin-3.10.4
+	~sys-apps/fc-configuration-1.2.16.4
+	~sys-kernel/foss-cloud-bin-3.10.5.1
 	~app-emulation/fc-broker-daemon-1.2.11.1
 "
 
