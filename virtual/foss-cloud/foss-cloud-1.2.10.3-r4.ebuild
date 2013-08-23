@@ -32,6 +32,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	~sys-apps/fc-configuration-1.2.16.4
 	~sys-kernel/foss-cloud-bin-3.10.5.1
 	~app-emulation/fc-broker-daemon-1.2.11.1
+	~app-emulation/sst-libvirt-hooks-0.1.1
 "
 
 S="${WORKDIR}"
