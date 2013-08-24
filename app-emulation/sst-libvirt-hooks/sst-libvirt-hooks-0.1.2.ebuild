@@ -15,7 +15,7 @@ IUSE=""
 
 DEPEND=""
 RDEPEND=">=app-emulation/libvirt-0.8.0
-	>=dev-libs/sst-bash-libs-0.1.0
+	>=dev-libs/sst-bash-libs-0.1.1
 	>=net-firewall/iptables-1.4.16.3"
 
 S="${WORKDIR}/${P#sst-}"
