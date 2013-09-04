@@ -15,12 +15,12 @@ SRC_URI="aacraid-linux-src-${MY_PV}.tgz"
 
 LICENSE="GPL-2"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""
 
 RESTRICT="mirror"
 
-DEPEND=">=virtual/linux-sources-3.10"
+DEPEND="virtual/linux-sources"
 RDEPEND=""
 
 S="${WORKDIR}"
@@ -41,6 +41,7 @@ src_unpack() {
 		-e 's|__devexit_p||' \
 		-e 's|__devinit||' \
 		-e 's|__devexit||' \
+		-e '/proc_info/d' \
 		linit.c || die "sed failed"
 
 }
