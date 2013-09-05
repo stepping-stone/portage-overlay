@@ -1,0 +1,36 @@
+From 5f01230b408f05735cdbff48ea999df5886995ed Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Tiziano=20M=C3=BCller?= <tiziano.mueller@stepping-stone.ch>
+Date: Thu, 5 Sep 2013 10:35:45 +0200
+Subject: [PATCH] Add base implementations of getShowEdit and getShowDelete
+
+---
+ protected/components/SelfCareLdapRecord.php | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/protected/components/SelfCareLdapRecord.php b/protected/components/SelfCareLdapRecord.php
+index b67a5b0..813e4a1 100644
+--- a/protected/components/SelfCareLdapRecord.php
++++ b/protected/components/SelfCareLdapRecord.php
+@@ -11,4 +11,18 @@ public function findByUid($uid) {
+ 		
+ 		return CLdapRecord::model(get_class($this))->findByAttributes($criteria);
+ 	}
++	
++	/*
++	 * show delete button within first column of grid view
++	 */
++	public function getShowDelete() {
++		return true;
++	}
++	
++	/*
++	 * show edit button within first column of grid view
++	 */
++	public function getShowEdit() {
++		return true;
++	}
+ }
+\ No newline at end of file
+-- 
+1.8.4
+

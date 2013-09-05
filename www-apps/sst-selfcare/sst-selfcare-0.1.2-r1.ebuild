@@ -4,6 +4,8 @@
 
 EAPI=5
 
+inherit eutils
+
 MY_P="selfcare-${PV}"
 YII_PV="1.1.13"
 
@@ -18,16 +20,20 @@ IUSE=""
 
 DEPEND=""
 RDEPEND="virtual/httpd-php
-	dev-lang/php:5.4
+	dev-lang/php:5.4[zip]
 	dev-php/yii:${YII_PV}"
 
 RESTRICT="fetch"
 
 S="${WORKDIR}/${MY_P}"
 
+src_prepare() {
+	epatch "${FILESDIR}/5f01230b408f05735cdbff48ea999df5886995ed.patch"
+}
+
 src_configure() {
 	sed -i \
-		-e "s|^\$yii=.*|\$yii='/usr/share/php/yii-${YII_PV}/framework/yii.php';|" \
+		-e "s|^\$yii =.*|\$yii='/usr/share/php/yii-${YII_PV}/framework/yii.php';|" \
 		index.php || die "sed failed"
 
 	declare -A parameter
