@@ -40,3 +40,5 @@ sys-apps/haveged amd64
 sys-apps/lm_sensors amd64
 
 dev-php/PHP-Easy-Report amd64
+
+net-misc/iperf amd64
