@@ -1,2 +1,5 @@
 sys-apps/seabios amd64
 sys-apps/vgabios amd64
+<app-emulation/qemu-9999 amd64
+<app-emulation/libvirt-9999 amd64
+~app-admin/ulogd-1.24 amd64

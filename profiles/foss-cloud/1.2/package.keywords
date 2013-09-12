@@ -1,14 +1,15 @@
 sys-cluster/glusterfs amd64
-sys-kernel/gentoo-sources amd64
-sys-kernel/linux-headers amd64
+<sys-kernel/gentoo-sources-3.11 amd64
+<sys-kernel/linux-headers-3.11 amd64
 
-# required for Qemu
+# Qemu and libvirt related keywords
 sys-firmware/seabios amd64
 sys-firmware/vgabios amd64
 sys-firmware/sgabios amd64
 sys-firmware/ipxe amd64
 sys-libs/libseccomp amd64
-
+<app-emulation/qemu-1.6 amd64
+<app-emulation/libvirt-1.2 amd64
 app-emulation/libguestfs amd64
 
 # required for sys-apps/fc-prov-backup-kvm
