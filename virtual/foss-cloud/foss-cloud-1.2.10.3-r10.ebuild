@@ -27,9 +27,9 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	~app-misc/fc-misc-scripts-1.2.3
 	~net-nds/sst-ldap-schemas-1.2.9
 	~sys-apps/fc-node-integration-1.2.18.2
-	=sys-apps/fc-prov-backup-kvm-1.0.11*
+	>=sys-apps/fc-prov-backup-kvm-1.0.11.2
 	~x11-themes/fc-artwork-1.0.4
-	~www-apps/vm-manager-1.2.18.3
+	>=www-apps/vm-manager-1.2.18.4
 	~sys-apps/fc-configuration-1.2.16.4
 	~sys-kernel/foss-cloud-bin-3.10.10
 	~app-emulation/fc-broker-daemon-1.2.11.1
