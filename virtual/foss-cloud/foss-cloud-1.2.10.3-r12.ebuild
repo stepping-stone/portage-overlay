@@ -29,7 +29,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	~sys-apps/fc-node-integration-1.2.18.3
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.2
 	~x11-themes/fc-artwork-1.0.4
-	>=www-apps/vm-manager-1.2.18.6
+	>=www-apps/vm-manager-1.2.18.7
 	~sys-apps/fc-configuration-1.2.16.5
 	~sys-kernel/foss-cloud-bin-3.10.10
 	~app-emulation/fc-broker-daemon-1.2.11.1
