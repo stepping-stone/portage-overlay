@@ -25,8 +25,8 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/lm_sensors-3.3.4
 	mail-mta/msmtp
 	~app-misc/fc-misc-scripts-1.2.3
-	~net-nds/sst-ldap-schemas-1.2.10
-	~sys-apps/fc-node-integration-1.2.18.3
+	~net-nds/sst-ldap-schemas-1.2.11
+	~sys-apps/fc-node-integration-1.2.18.4
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.2
 	~x11-themes/fc-artwork-1.0.4
 	>=www-apps/vm-manager-1.2.18.9
