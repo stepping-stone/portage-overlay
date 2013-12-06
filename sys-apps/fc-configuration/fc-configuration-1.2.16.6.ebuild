@@ -68,8 +68,8 @@ src_install() {
 		-e 's|buildpkg|getbinpkg|' \
 		"${D}/etc/portage/make.conf" || die "sed failed"
 
-	fperms 0640 /etc/openldap/slapd.conf
-	fowners root:ldap /etc/openldap/slapd.conf
+	fperms 0640 /etc/openldap/slapd.conf.template
+	fowners root:ldap /etc/openldap/slapd.conf.template
 
 	# SSH ignores the file if world-readable
 	fperms 0600 /etc/ssh/sshd_config
