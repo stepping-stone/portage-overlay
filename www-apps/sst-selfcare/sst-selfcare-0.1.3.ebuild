@@ -4,8 +4,6 @@
 
 EAPI=5
 
-inherit eutils
-
 MY_P="selfcare-${PV}"
 YII_PV="1.1.13"
 
@@ -26,10 +24,6 @@ RDEPEND="virtual/httpd-php
 RESTRICT="fetch"
 
 S="${WORKDIR}/${MY_P}"
-
-src_prepare() {
-	epatch "${FILESDIR}/5f01230b408f05735cdbff48ea999df5886995ed.patch"
-}
 
 src_configure() {
 	sed -i \
