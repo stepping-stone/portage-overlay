@@ -17,7 +17,7 @@ KEYWORDS="amd64"
 IUSE=""
 
 DEPEND=""
-RDEPEND=">=sys-apps/sst-syslog-ng-configuration-1.0.3
+RDEPEND=">=sys-apps/sst-syslog-ng-configuration-2.2.1
 	app-admin/logrotate
 	app-admin/webapp-config
 	app-emulation/libvirt
