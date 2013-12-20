@@ -34,6 +34,7 @@ RDEPEND=">=sys-apps/sst-syslog-ng-configuration-2.2.1
 	sys-apps/sysvinit
 	sys-libs/glibc
 	www-servers/apache
+	sys-cluster/glusterfs
 	>=app-admin/ulogd-2"
 
 S="${WORKDIR}/${MY_P}"
@@ -56,7 +57,7 @@ src_install() {
 	insinto /etc/libvirt/storage
 	doins libvirt/storage/*.xml
 
-	for d in layman portage profile.d ssh ssl dhcp kernels apache2 openldap foss-cloud php powerdns vhosts sysctl.d logrotate.d ; do
+	for d in layman portage profile.d ssh ssl dhcp kernels apache2 openldap foss-cloud php powerdns vhosts sysctl.d logrotate.d glusterfs ; do
 		insinto "/etc/${d}"
 		doins -r "${d}"/*
 	done
