@@ -15,4 +15,4 @@ SST_FIREWALL_INIT_RULESET_SCRIPT="${SST_FIREWALL_BASE_DIR}/init-ruleset.sh"
 SST_FIREWALL_ALL_CHAINS_SCRIPT="${SST_FIREWALL_CHAINS_DIR}/$( /bin/hostname )/all_chains.sh"
 
 # The logger command to which the output of the above scripts will be piped to
-SST_FIREWALL_LOGGER_CMD="/usr/bin/logger --tag 'sst-firewall'"
+SST_FIREWALL_LOGGER_CMD="/usr/bin/logger --tag sst-firewall"
