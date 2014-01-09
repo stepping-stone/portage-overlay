@@ -23,7 +23,8 @@ RDEPEND="~sys-apps/sst-provisioning-0.2.5
 	dev-perl/Sys-Virt
 	dev-perl/XML-Simple
 	dev-perl/Filesys-Df
-	virtual/perl-File-Path"
+	virtual/perl-File-Path
+	dev-perl/PerlUtil"
 
 S="${WORKDIR}/${P#fc-}"
 
