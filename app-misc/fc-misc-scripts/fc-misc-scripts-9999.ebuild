@@ -9,7 +9,7 @@ inherit git-2
 
 DESCRIPTION="FOSS-Cloud miscellaneous scripts"
 HOMEPAGE="http://www.foss-cloud.org/"
-EGIT_REPO_URI="https://github.com/FOSS-Cloud/misc-scripts.git"
+EGIT_REPO_URI="https://github.com/stepping-stone/misc-scripts.git"
 
 LICENSE="EUPL"
 SLOT="0"
@@ -22,6 +22,15 @@ RDEPEND=""
 src_install() {
 	exeinto /usr/libexec/foss-cloud
 	doexe usr/libexec/foss-cloud/*.sh
+
+	exeinto /usr/libexec/ucarp-hooks
+	doexe usr/libexec/ucarp-hooks/ucarp-hook-dispatcher.sh
+
+	exeinto /usr/libexec/ucarp-hooks/available
+	doexe usr/libexec/ucarp-hooks/available/*.sh
+
+	insinto /usr/libexec/ucarp-hooks/active
+	doins -r usr/libexec/ucarp-hooks/active/*
 
 	insinto /etc
 	doins -r etc/{foss-cloud,local.d}
