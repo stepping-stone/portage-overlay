@@ -1,4 +1,5 @@
 # Copyright 1999-2012 FOSS-Group, Germany
+# Copyright 2014      stepping stone GmbH, Switzerland
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -24,6 +25,9 @@ src_install() {
 
 	insinto /etc
 	doins -r etc/{foss-cloud,local.d}
+
+	exeinto /etc/portage/postsync.d
+	doexe etc/portage/postsync.d/sync-overlays
 
 	insinto /usr/share
 	doins -r usr/share/foss-cloud
