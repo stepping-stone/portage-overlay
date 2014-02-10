@@ -1,4 +1,4 @@
-# Copyright 1999-2013 stepping stone GmbH, Switzerland
+# Copyright 1999-2014 stepping stone GmbH, Switzerland
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -21,8 +21,18 @@ RDEPEND=">=app-emulation/libvirt-0.8.0
 	>=net-firewall/iptables-1.4.16.3"
 
 src_install() {
-	doins -r etc
-	fperms 0750 /etc/libvirt/hooks/{daemon,lxc,qemu}
+	diropts -m0750
+	insopts -m0640
+	exeopts -m0750
+
+	dodir /etc/libvirt/hooks
+	exeinto /etc/libvirt/hooks
+	doexe etc/libvirt/hooks/{daemon,lxc,qemu}
+
+	dodir /etc/libvirt/hooks-conf.d
+
+	insinto /etc/libvirt/hooks-conf.d
+	newins etc/libvirt/hooks-conf.d/10_firewall.conf.example 10_firewall.conf
 
 	dodir /usr/libexec/libvirt-hooks/{daemon.d,lxc.d,qemu.d}
 
