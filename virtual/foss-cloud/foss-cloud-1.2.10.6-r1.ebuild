@@ -25,7 +25,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/lm_sensors-3.3.4
 	mail-mta/msmtp
 	>=app-misc/fc-misc-scripts-1.3.0
-	~net-nds/sst-ldap-schemas-1.2.12
+	~net-nds/sst-ldap-schemas-1.2.13
 	>=sys-apps/fc-node-integration-1.2.18.9
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.5
 	~x11-themes/fc-artwork-1.0.4
@@ -33,7 +33,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/fc-configuration-1.2.16.10
 	~sys-kernel/foss-cloud-bin-3.10.26
 	~app-emulation/fc-broker-daemon-1.2.11.1
-	>=app-emulation/sst-libvirt-hooks-1.0.2
+	>=app-emulation/sst-libvirt-hooks-1.1.0
 	>=net-firewall/sst-netfilter-scripts-0.1.0
 "
 
