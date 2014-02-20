@@ -31,7 +31,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	~x11-themes/fc-artwork-1.0.4
 	>=www-apps/vm-manager-1.2.18.10
 	>=sys-apps/fc-configuration-1.2.16.10
-	~sys-kernel/foss-cloud-bin-3.10.26
+	~sys-kernel/foss-cloud-bin-3.10.30
 	~app-emulation/fc-broker-daemon-1.2.11.1
 	>=app-emulation/sst-libvirt-hooks-1.1.0
 	>=net-firewall/sst-netfilter-scripts-0.1.0
