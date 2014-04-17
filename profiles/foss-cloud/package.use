@@ -7,7 +7,10 @@ sys-devel/gettext -git
 dev-libs/apr-util -berkdb -gdbm
 dev-vcs/subversion -berkdb
 net-misc/dhcp ldap -ipv6
+
+app-admin/eselect-php apache2
 dev-lang/php apache2 filter ldap mhash xml -berkdb -gdbm -ncurses -readline
+
 net-nds/openldap cxx overlays sasl syslog
 
 # installed only in the build root to build the installer (sysresccd) image
