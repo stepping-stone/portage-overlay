@@ -1,0 +1,2 @@
+# remove the stable USE flag mask on qemu since we import qemu and glusterfs from unstable
+app-emulation/qemu -glusterfs
