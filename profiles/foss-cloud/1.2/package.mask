@@ -4,9 +4,5 @@ sys-apps/module-init-tools
 # Block newer versions of zabbix since we can't provision it yet
 >=net-analyzer/zabbix-2
 
-# mask php-5.5 for now
-dev-lang/php:5.5
-virtual/httpd-php:5.5
-
 # mask newer kernels since we want to stay with 3.10 for now
 >=sys-kernel/gentoo-sources-3.11
