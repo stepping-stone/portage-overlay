@@ -1,26 +1,36 @@
-# Copyright 1999-2012 Gentoo Foundation
+# Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Header: /var/cvsroot/gentoo-x86/sys-cluster/glusterfs/glusterfs-3.3.1.ebuild,v 1.2 2012/11/19 16:10:26 ultrabug Exp $
+# $Header: /var/cvsroot/gentoo-x86/sys-cluster/glusterfs/glusterfs-3.4.4-r2.ebuild,v 1.1 2014/06/25 15:48:20 dev-zero Exp $
 
-EAPI=4
+EAPI=5
 
-PYTHON_DEPEND="2"
+PYTHON_COMPAT=( python{2_6,2_7} )
 AUTOTOOLS_AUTORECONF=1
 
-inherit autotools-utils elisp-common eutils multilib python versionator
+inherit autotools-utils elisp-common eutils multilib python-single-r1 versionator
 
 DESCRIPTION="GlusterFS is a powerful network/cluster filesystem"
 HOMEPAGE="http://www.gluster.org/"
 SRC_URI="http://download.gluster.org/pub/gluster/${PN}/$(get_version_component_range '1-2')/${PV}/${P}.tar.gz"
 
-LICENSE="AGPL-3"
+LICENSE="|| ( GPL-2 LGPL-3+ )"
 SLOT="0"
 KEYWORDS="~amd64 ~x86"
-IUSE="emacs extras +fuse infiniband static-libs vim-syntax"
+IUSE="bd-xlator debug emacs extras +fuse +georeplication infiniband static-libs systemtap vim-syntax"
 
-RDEPEND="emacs? ( virtual/emacs )
+REQUIRED_USE="georeplication? ( ${PYTHON_REQUIRED_USE} )"
+
+RDEPEND="bd-xlator? ( sys-fs/lvm2 )
+	emacs? ( virtual/emacs )
 	fuse? ( >=sys-fs/fuse-2.7.0 )
-	infiniband? ( sys-infiniband/libibverbs )"
+	georeplication? ( ${PYTHON_DEPS} )
+	infiniband? ( sys-infiniband/libibverbs sys-infiniband/librdmacm )
+	systemtap? ( dev-util/systemtap )
+	sys-libs/readline
+	dev-libs/libaio
+	dev-libs/libxml2
+	dev-libs/openssl
+	|| ( sys-libs/glibc sys-libs/argp-standalone )"
 DEPEND="${RDEPEND}
 	virtual/pkgconfig
 	sys-devel/bison
@@ -29,58 +39,56 @@ DEPEND="${RDEPEND}
 SITEFILE="50${PN}-mode-gentoo.el"
 
 PATCHES=(
-	"${FILESDIR}/${PN}-3.3.0-parallel-build.patch"
-	"${FILESDIR}/${PN}-3.3.0-docdir.patch"
-	"${FILESDIR}/${PN}-3.3.0-silent_rules.patch"
-	"${FILESDIR}/${PN}-3.3.0-avoid-version.patch"
+	"${FILESDIR}/${PN}-3.4.0-silent_rules.patch"
+	"${FILESDIR}/${PN}-3.4.0-build-shared-only.patch"
+	"${FILESDIR}/${PN}-3.4.4-fuse-fix-memory-leak-in-fuse_getxattr.patch"
+	"${FILESDIR}/${PN}-3.4.4-cluster-dht-Don-t-do-extra-unref-in-dht-migration-ch.patch"
 )
 
 DOCS=( AUTHORS ChangeLog NEWS README THANKS )
 
-pkg_setup() {
-	python_set_active_version 2
-	python_pkg_setup
-}
+# Maintainer notes:
+# * The build system will always configure & build argp-standalone but it'll never use it
+#   if the argp.h header is found in the system. Which should be the case with
+#   glibc or if argp-standalone is installed.
 
-src_prepare() {
-	sed -e "s/ -ggdb3//g" \
-		-i argp-standalone/configure.ac || die
-	autotools-utils_src_prepare
-	cd argp-standalone && eautoreconf
+pkg_setup() {
+	 use georeplication && python-single-r1_pkg_setup
 }
 
 src_configure() {
 	local myeconfargs=(
 		--disable-dependency-tracking
 		--disable-silent-rules
+		--disable-fusermount
+		$(use_enable debug)
+		$(use_enable bd-xlator )
 		$(use_enable fuse fuse-client)
+		$(use_enable georeplication)
 		$(use_enable infiniband ibverbs)
 		$(use_enable static-libs static)
-		--enable-georeplication
+		$(use_enable systemtap)
 		--docdir=/usr/share/doc/${PF}
 		--localstatedir=/var
 	)
-
-	# glusterfs records the python executable in the gsyncd executable
-	# and executes python scripts without considering their shebang, breaking
-	# things with python3 set as system interpreter
-	export PYTHON="${PREFIX}/usr/bin/python2"
-
 	autotools-utils_src_configure
 }
 
 src_compile() {
 	autotools-utils_src_compile
-	if use emacs ; then
-		elisp-compile extras/glusterfs-mode.el || die
-	fi
+
+	use emacs && elisp-compile extras/glusterfs-mode.el
 }
 
 src_install() {
 	autotools-utils_src_install
 
+	rm "${D}/etc/glusterfs/glusterfs-logrotate" || die "removing false logrotate failed"
+	insinto /etc/logrotate.d
+	newins "${FILESDIR}"/glusterfs.logrotate glusterfs
+
 	if use emacs ; then
-		elisp-install ${PN} extras/glusterfs-mode.el* || die
+		elisp-install ${PN} extras/glusterfs-mode.el*
 		elisp-site-file-install "${FILESDIR}/${SITEFILE}"
 	fi
 
@@ -90,20 +98,24 @@ src_install() {
 	fi
 
 	if use extras ; then
-		newbin extras/backend-xattr-sanitize.sh ${PN}-backend-xattr-sanitize
-		newbin extras/backend-cleanup.sh ${PN}-backend-cleanup
-		newbin extras/migrate-unify-to-distribute.sh ${PN}-migrate-unify-to-distribute
+		sed -i -e "s|quota-remove-xattr.sh|${PN}-quota-remove-xattr|" extras/quota-metadata-cleanup.sh || die "sed failed"
+		for e in backend-xattr-sanitize backend-cleanup migrate-unify-to-distribute quota-metadata-cleanup quota-remove-xattr ; do
+			newbin extras/${e}.sh ${PN}-${e}
+		done
 		newbin extras/disk_usage_sync.sh ${PN}-disk-usage-sync
 	fi
 
 	newinitd "${FILESDIR}/${PN}-r1.initd" glusterfsd
-	newinitd "${FILESDIR}/glusterd.initd" glusterd
+	newinitd "${FILESDIR}/glusterd-r1.initd" glusterd
 	newconfd "${FILESDIR}/${PN}.confd" glusterfsd
 
 	keepdir /var/log/${PN}
 	keepdir /var/lib/glusterd
 
-	python_convert_shebangs -r 2 "${ED}"
+	# QA
+	rm -rf "${ED}/var/run/"
+
+	use georeplication && python_fix_shebang "${ED}"
 }
 
 pkg_postinst() {
@@ -126,8 +138,8 @@ pkg_postinst() {
 	ewarn "run GlusterFS."
 
 	elog
-	elog "You are upgrading from a previous version of ${PN}, please read:"
-	elog "http://vbellur.wordpress.com/2012/05/31/upgrading-to-glusterfs-3-3/"
+	elog "If you are upgrading from a previous version of ${PN}, please read:"
+	elog "  https://vbellur.wordpress.com/2013/07/15/upgrading-to-glusterfs-3-4/"
 
 	use emacs && elisp-site-regen
 }
