@@ -1,12 +1,8 @@
 
 USE="acl acpi bash-completion bzip2 md5sum mmx sse sse2 unicode vim-syntax xattr -cracklib -doc -gpm -ipv6 -logrotate -python -qt -tcpd -X"
 
-# the PHP_TARGETS USE_EXPAND var is set to contain php5-5
-# but we dont want php5-5 yet and can't override PHP_TARGETS in this make.defaults
-USE="${USE} -php_targets_php5-5"
-
 # This is the default if not set. Currently a reminder that
 # we should change this to "production" sometime.
 PHP_INI_VERSION="development"
 
-PHP_TARGETS="php5-4"
+PHP_TARGETS="php5-5"
