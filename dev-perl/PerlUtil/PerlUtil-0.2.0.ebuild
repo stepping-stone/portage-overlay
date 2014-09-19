@@ -1,4 +1,4 @@
-# Copyright 1999-2013 Gentoo Foundation
+# Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -15,9 +15,10 @@ SLOT="0"
 KEYWORDS="amd64"
 IUSE=""
 
-RDEPEND="virtual/perl-Switch
-	virtual/perl-Sys-Syslog
-	dev-perl/perl-ldap"
+RDEPEND="virtual/perl-Sys-Syslog
+	dev-perl/Switch
+	dev-perl/perl-ldap
+	dev-perl/Net-SMTPS"
 DEPEND=""
 
 RESTRICT="fetch"
