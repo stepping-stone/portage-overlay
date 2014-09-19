@@ -21,11 +21,11 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	www-apache/mod_umask
 	net-nds/openldap
 	net-nds/phpldapadmin
-	*net-dns/pdns-recursor
+	net-dns/pdns-recursor
 	app-emulation/ksm
 	net-misc/dhcpcd
 	net-misc/dhcp
-	>=sys-cluster/glusterfs
+	>=sys-cluster/glusterfs-3.5.1
 	>=app-emulation/qemu-2.1.1
 	>=app-emulation/libvirt-1.2.6
 	>=net-misc/ucarp-1.5.2-r3
