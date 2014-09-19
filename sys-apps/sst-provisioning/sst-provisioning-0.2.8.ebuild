@@ -1,4 +1,4 @@
-# Copyright 1999-2012 stepping stone GmbH, Switzerland
+# Copyright 1999-2013 stepping stone GmbH, Switzerland
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -25,7 +25,7 @@ RDEPEND="dev-perl/Config-IniFiles
 	dev-perl/LockFile-Simple
 	virtual/perl-File-Path
 	dev-perl/perl-ldap
-	dev-perl/Net-SMTP-TLS
+	dev-perl/Net-SMTPS
 	dev-perl/Net-OpenSSH
 	dev-perl/Text-CSV
 	dev-perl/IO-String
