@@ -17,6 +17,15 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	ipmi? ( sys-apps/ipmitool )
 	zabbix? ( net-analyzer/zabbix[agent] )
 	sys-block/nbd
+	www-servers/apache
+	www-apache/mod_umask
+	net-nds/openldap
+	net-nds/phpldapadmin
+	*net-dns/pdns-recursor
+	app-emulation/ksm
+	net-misc/dhcpcd
+	net-misc/dhcp
+	>=sys-cluster/glusterfs
 	>=app-emulation/qemu-2.1.1
 	>=app-emulation/libvirt-1.2.6
 	>=net-misc/ucarp-1.5.2-r3

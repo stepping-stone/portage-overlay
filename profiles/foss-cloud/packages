@@ -18,13 +18,5 @@
 *sys-apps/less
 *virtual/eject
 
-*dev-perl/JSON
-*dev-perl/Text-CSV-Encoded
-*dev-perl/Sys-Virt
-*perl-core/Switch
-*dev-perl/XML-Simple
-
 *dev-vcs/git
 *app-portage/layman
-*virtual/foss-cloud
-
