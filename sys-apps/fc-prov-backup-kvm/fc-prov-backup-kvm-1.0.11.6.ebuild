@@ -1,4 +1,4 @@
-# Copyright 1999-2012 FOSS-Group, Germany
+# Copyright 1999-2013 FOSS-Group, Germany
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -8,22 +8,23 @@ inherit eutils perl-module
 
 DESCRIPTION="FOSS-Cloud Backup script (a module of the stepping-stone provisioning daemon)."
 HOMEPAGE="http://www.foss-cloud.org/"
-SRC_URI="http://github.com/FOSS-Cloud/${PN#fc-}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
+SRC_URI="http://github.com/stepping-stone/${PN#fc-}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
 
-LICENSE="EUPL"
+LICENSE="EUPL-1.1"
 SLOT="0"
 KEYWORDS="amd64"
 IUSE=""
 
 DEPEND=""
-RDEPEND="~sys-apps/sst-provisioning-0.1.4
+RDEPEND="~sys-apps/sst-provisioning-0.2.8
 	dev-perl/Config-IniFiles
 	dev-perl/perl-ldap
 	virtual/perl-Switch
 	dev-perl/Sys-Virt
 	dev-perl/XML-Simple
 	dev-perl/Filesys-Df
-	virtual/perl-File-Path"
+	virtual/perl-File-Path
+	dev-perl/PerlUtil"
 
 S="${WORKDIR}/${P#fc-}"
 
@@ -34,6 +35,8 @@ src_install() {
 	insopts -m0640
 	insinto /etc
 	doins -r etc/Provisioning
+
+	dobin bin/*
 
 	dodoc README.md
 
