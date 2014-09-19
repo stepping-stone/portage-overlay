@@ -1,4 +1,4 @@
-# Copyright 1999-2012 FOSS-Group, Germany
+# Copyright 1999-2013 FOSS-Group, Germany
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
@@ -6,7 +6,7 @@ EAPI=4
 
 DESCRIPTION="FOSS-Cloud Webinterface"
 HOMEPAGE="http://www.foss-cloud.org/"
-SRC_URI="http://github.com/FOSS-Cloud/${PN}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
+SRC_URI="http://github.com/stepping-stone/${PN}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
 
 LICENSE="EUPL"
 SLOT="0"
@@ -15,12 +15,12 @@ IUSE=""
 
 DEPEND=""
 RDEPEND="virtual/httpd-php
-	dev-lang/php:5.3
+	dev-lang/php:5.4
 	dev-php/pecl-uuid
 	dev-php/libvirt-php
 	dev-php/pecl-uploadprogress
 	dev-php/pecl-ssh2
-	=dev-php/yii-1.1.5"
+	=dev-php/yii-1.1.8"
 
 src_configure() {
 	sed -i \
@@ -68,4 +68,7 @@ src_install() {
 	fowners root:apache "/var/www/localhost/htdocs/vm-manager/assets/"
 	fowners root:apache "/var/www/localhost/htdocs/vm-manager/images/uploads/"
 	fowners root:apache "/var/www/localhost/htdocs/vm-manager/protected/runtime/"
+
+	echo 'CONFIG_PROTECT="/var/www/localhost/htdocs/vm-manager/vm_config.php"' > "${T}/99vm-manager"
+	doenvd "${T}/99vm-manager"
 }
