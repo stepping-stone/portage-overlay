@@ -9,7 +9,7 @@ MY_P="${MY_PN}-${PV}"
 
 DESCRIPTION="FOSS-Cloud configuration files"
 HOMEPAGE="http://www.foss-cloud.org/"
-SRC_URI="http://github.com/FOSS-Cloud/${MY_PN}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
+SRC_URI="http://github.com/stepping-stone/${MY_PN}/archive/v${PV}.tar.gz -> ${P}.tar.gz"
 
 LICENSE="EUPL"
 SLOT="0"
@@ -17,7 +17,7 @@ KEYWORDS="amd64"
 IUSE=""
 
 DEPEND=""
-RDEPEND=">=sys-apps/sst-syslog-ng-configuration-1.0.2
+RDEPEND=">=sys-apps/sst-syslog-ng-configuration-2.3.0
 	app-admin/logrotate
 	app-admin/webapp-config
 	app-emulation/libvirt
@@ -33,7 +33,9 @@ RDEPEND=">=sys-apps/sst-syslog-ng-configuration-1.0.2
 	sys-apps/portage
 	sys-apps/sysvinit
 	sys-libs/glibc
-	www-servers/apache"
+	www-servers/apache
+	sys-cluster/glusterfs
+	>=app-admin/ulogd-2"
 
 S="${WORKDIR}/${MY_P}"
 
@@ -55,7 +57,7 @@ src_install() {
 	insinto /etc/libvirt/storage
 	doins libvirt/storage/*.xml
 
-	for d in layman portage profile.d ssh dhcp kernels apache2 openldap foss-cloud php powerdns vhosts sysctl.d logrotate.d ; do
+	for d in layman portage profile.d ssh ssl dhcp kernels apache2 openldap foss-cloud php powerdns vhosts sysctl.d logrotate.d glusterfs ; do
 		insinto "/etc/${d}"
 		doins -r "${d}"/*
 	done
@@ -67,12 +69,31 @@ src_install() {
 		-e 's|buildpkg|getbinpkg|' \
 		"${D}/etc/portage/make.conf" || die "sed failed"
 
-	fperms 0640 /etc/openldap/slapd.conf
-	fowners root:ldap /etc/openldap/slapd.conf
+	fperms 0640 /etc/openldap/slapd.conf.template
+	fowners root:ldap /etc/openldap/slapd.conf.template
 
-	# SSH ignores the file if worl-readable
+	# SSH ignores the file if world-readable
 	fperms 0600 /etc/ssh/sshd_config
 
 	keepdir /var/log/archive
 	keepdir /var/virtualization
+
+	# Create required directories
+	keepdir /etc/ssl/FOSS-Cloud_CA/{certs,crl,newcerts,private,requests}
+
+	# Set correct permissions for sensitive directories
+	fperms 0700 /etc/ssl/FOSS-Cloud_CA/private
+	fperms 0600 /etc/ssl/FOSS-Cloud_CA/index.txt
+
+	keepdir /etc/openldap/ssl/keys
+	fowners root:ldap /etc/openldap/ssl{,/keys}
+	fperms 0750 /etc/openldap/ssl{,/keys}
+
+	# Create directory for holding a copy of the CA certificate
+	keepdir /var/www/localhost/htdocs/ca
+	fowners root:apache /var/www/localhost/htdocs/ca
+	fperms 2750 /var/www/localhost/htdocs/ca
+
+	fowners root:ulogd /etc/ulogd.conf
+	fperms 0640 /etc/ulogd.conf
 }
