@@ -1,8 +1,9 @@
 # Copyright 1999-2013 FOSS-Group, Germany
+#                2014 stepping stone GmbH, Switzerland
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
-EAPI=4
+EAPI=5
 
 DESCRIPTION="FOSS-Cloud Webinterface"
 HOMEPAGE="http://www.foss-cloud.org/"
@@ -14,8 +15,7 @@ KEYWORDS="amd64"
 IUSE=""
 
 DEPEND=""
-RDEPEND="virtual/httpd-php
-	dev-lang/php:5.4
+RDEPEND="virtual/httpd-php:5.5
 	dev-php/pecl-uuid
 	dev-php/libvirt-php
 	dev-php/pecl-uploadprogress
@@ -57,7 +57,7 @@ src_install() {
 	rm -rf .gitignore .git framework.zip 
 	
 	insinto "/var/www/localhost/htdocs/vm-manager"
-    doins -r .
+	doins -r .
 
 	fperms 640 "/var/www/localhost/htdocs/vm-manager/vm_config.php"
 	fowners root:apache "/var/www/localhost/htdocs/vm-manager/vm_config.php"
