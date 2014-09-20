@@ -1,4 +1,4 @@
-app-emulation/libvirt caps json libvirtd macvtap nfs numa nls pcap qemu sasl virt-network
+app-emulation/libvirt json libvirtd macvtap nfs numa nls pcap qemu sasl virt-network
 app-emulation/qemu aio -alsa curl -fdt glusterfs ncurses python sasl smartcard spice tci threads tls usbredir -vde virtfs vhost-net xattr xfs
 
 # The smartcard flag here is only for the client
@@ -16,7 +16,6 @@ sys-cluster/glusterfs bd-xlator
 # Enable ldap support for storing ssh public keys (mainly to get the schema)
 net-misc/openssh ldap
 
-sys-apps/smartmontools caps
 dev-lang/php zip
 
 # Enable netfilter accounting

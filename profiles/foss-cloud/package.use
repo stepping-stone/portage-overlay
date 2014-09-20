@@ -1,5 +1,5 @@
 sys-libs/libcap -python
-net-misc/ntp caps debug -ssl
+net-misc/ntp debug -ssl
 sys-fs/lvm2 -lvm1 -static
 net-mail/mailbase -pam
 net-analyzer/zabbix agent -sqlite3
