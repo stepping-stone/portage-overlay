@@ -1,5 +1,6 @@
 sys-cluster/glusterfs amd64
 <sys-kernel/gentoo-sources-3.10.9999 amd64
+<sys-kernel/hardened-sources-3.14.9999 amd64
 <sys-kernel/linux-headers-3.10.9999 amd64
 
 # Qemu and libvirt related keywords

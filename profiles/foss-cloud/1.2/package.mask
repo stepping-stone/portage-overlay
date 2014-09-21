@@ -7,6 +7,7 @@ sys-apps/module-init-tools
 # mask newer kernels since we want to stay with 3.10 for now
 >=sys-kernel/gentoo-sources-3.11
 >=sys-kernel/linux-headers-3.11
+>=sys-kernel/hardened-sources-3.15
 
 # help the resolver in portage to always use perl-5.16
 =dev-lang/perl-5.12*
