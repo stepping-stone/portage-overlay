@@ -63,6 +63,6 @@ EOF
 src_install() {
 	insinto /etc
 	doins stoney-cloud_version os-release
-	dosym foss-cloud_version stoney-cloud_version
+	dosym stoney-cloud_version /etc/foss-cloud_version
 	doenvd 99stoney-cloud
 }
