@@ -40,7 +40,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.6
 	~x11-themes/fc-artwork-1.0.4
 	>=www-apps/vm-manager-1.2.18.12
-	>=sys-apps/fc-configuration-1.2.16.13
+	>=sys-apps/fc-configuration-1.2.16.14
 	>=sys-kernel/foss-cloud-bin-3.10.55
 	>=app-emulation/sst-libvirt-hooks-1.1.2
 	>=net-firewall/sst-netfilter-scripts-0.1.0
