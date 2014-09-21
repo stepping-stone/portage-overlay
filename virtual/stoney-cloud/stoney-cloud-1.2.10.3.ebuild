@@ -4,7 +4,7 @@
 
 EAPI=4
 
-DESCRIPTION="virtual package to pull in FOSS-Cloud packages"
+DESCRIPTION="virtual package to pull in stoney-cloud packages"
 HOMEPAGE="http://www.foss-cloud.org/"
 
 LICENSE="EUPL"
@@ -17,17 +17,17 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	ipmi? ( sys-apps/ipmitool )
 	zabbix? ( net-analyzer/zabbix[agent] )
 	sys-block/nbd
-	>=app-emulation/qemu-1.4.2
-	>=app-emulation/libvirt-1.1.0
+	>=app-emulation/qemu-1.5.2
+	>=app-emulation/libvirt-1.1.1
 	>=net-misc/ucarp-1.5.2-r3
 	~app-misc/fc-misc-scripts-1.2.3
-	~net-nds/sst-ldap-schemas-1.2.8
-	~sys-apps/fc-node-integration-1.2.18.1
+	~net-nds/sst-ldap-schemas-1.2.9
+	~sys-apps/fc-node-integration-1.2.18.2
 	~sys-apps/fc-prov-backup-kvm-1.0.11.1
 	~x11-themes/fc-artwork-1.0.4
-	~www-apps/vm-manager-1.2.18.1
-	~sys-apps/fc-configuration-1.2.16.1
-	~sys-kernel/foss-cloud-bin-3.10.0
+	~www-apps/vm-manager-1.2.18.2
+	~sys-apps/fc-configuration-1.2.16.3
+	~sys-kernel/foss-cloud-bin-3.10.4
 	~app-emulation/fc-broker-daemon-1.2.11.1
 "
 

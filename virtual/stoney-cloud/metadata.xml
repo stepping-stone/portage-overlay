@@ -2,7 +2,7 @@
 <!DOCTYPE pkgmetadata SYSTEM "http://www.gentoo.org/dtd/metadata.dtd">
 <pkgmetadata>
 <longdescription lang="en">
-Virtual package which pulls in everything for a FOSS-Cloud.
+Virtual package which pulls in everything for a stoney cloud.
 </longdescription>
 <use>
 	<flag name='cifs'>Pull in <pkg>net-fs/cifs-utils</pkg> to support CIFS mounts.</flag>

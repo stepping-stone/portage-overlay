@@ -4,7 +4,7 @@
 
 EAPI=4
 
-DESCRIPTION="virtual package to pull in FOSS-Cloud packages"
+DESCRIPTION="virtual package to pull in stoney-cloud packages"
 HOMEPAGE="http://www.foss-cloud.org/"
 
 LICENSE="EUPL"
