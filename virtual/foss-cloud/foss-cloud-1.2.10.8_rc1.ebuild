@@ -1,8 +1,9 @@
 # Copyright 1999-2013 FOSS-Group, Germany
+#                2014 stepping stone GmbH, Switzerland
 # Distributed under the terms of the GNU General Public License v2
 # $Header: $
 
-EAPI=4
+EAPI=5
 
 DESCRIPTION="virtual package to pull in FOSS-Cloud packages"
 HOMEPAGE="http://www.foss-cloud.org/"
@@ -41,7 +42,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=www-apps/vm-manager-1.2.18.12
 	>=sys-apps/fc-configuration-1.2.16.12
 	~sys-kernel/foss-cloud-bin-3.10.35
-	>=app-emulation/sst-libvirt-hooks-1.1.0
+	>=app-emulation/sst-libvirt-hooks-1.1.2
 	>=net-firewall/sst-netfilter-scripts-0.1.0
 "
 
