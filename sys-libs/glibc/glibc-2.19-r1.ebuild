@@ -140,10 +140,12 @@ eblit-run() {
 	eblit-run-maybe eblit-$1-post
 }
 
-src_unpack()  { eblit-run src_unpack  ; }
-src_compile() { eblit-run src_compile ; }
-src_test()    { eblit-run src_test    ; }
-src_install() { eblit-run src_install ; }
+src_unpack()    { eblit-run src_unpack    ; }
+src_prepare()   { eblit-run src_prepare   ; }
+src_configure() { eblit-run src_configure ; }
+src_compile()   { eblit-run src_compile   ; }
+src_test()      { eblit-run src_test      ; }
+src_install()   { eblit-run src_install   ; }
 
 # FILESDIR might not be available during binpkg install
 for x in setup {pre,post}inst ; do
