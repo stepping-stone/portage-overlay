@@ -16,20 +16,23 @@ SRC_URI="http://github.com/stepping-stone/${MY_PN}/archive/v${PV}.tar.gz -> ${P}
 LICENSE="EUPL"
 SLOT="0"
 KEYWORDS="amd64"
-IUSE=""
+IUSE="kvm-backup ox"
 
 DEPEND=""
-RDEPEND="dev-perl/Config-IniFiles
-	virtual/perl-Sys-Syslog
+RDEPEND="virtual/perl-Sys-Syslog
 	virtual/perl-Getopt-Long
-	dev-perl/LockFile-Simple
+	virtual/perl-Module-Load
 	virtual/perl-File-Path
+	dev-perl/Config-IniFiles
+	dev-perl/LockFile-Simple
 	dev-perl/perl-ldap
 	dev-perl/Net-SMTPS
 	dev-perl/Net-OpenSSH
 	dev-perl/Text-CSV-Encoded
 	dev-perl/IO-String
-	dev-perl/Switch"
+	dev-perl/Switch
+	kvm-backup? ( dev-perl/Sys-Virt )
+	ox? ( dev-perl/Crypt-GeneratePassword )"
 
 S="${WORKDIR}/${MY_P}"
 
