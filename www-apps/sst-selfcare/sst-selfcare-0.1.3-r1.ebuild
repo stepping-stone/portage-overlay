@@ -18,7 +18,7 @@ IUSE=""
 
 DEPEND=""
 RDEPEND="virtual/httpd-php
-	dev-lang/php:5.4[zip]
+	dev-lang/php[zip]
 	dev-php/yii:${YII_PV}"
 
 RESTRICT="fetch"
