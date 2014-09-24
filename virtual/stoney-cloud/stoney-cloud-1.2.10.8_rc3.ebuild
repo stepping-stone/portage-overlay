@@ -16,9 +16,9 @@ IUSE="+cifs +ipmi +zabbix"
 DEPEND=""
 RDEPEND="cifs? ( net-fs/cifs-utils )
 	ipmi? ( sys-apps/ipmitool )
-	zabbix? ( net-analyzer/zabbix[agent] )
+	zabbix? ( net-analyzer/zabbix[agent] app-admin/sudo )
 	sys-block/nbd
-	www-servers/apache
+	www-servers/apache[ldap]
 	www-apache/mod_umask
 	net-nds/openldap
 	net-nds/phpldapadmin
@@ -33,16 +33,15 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	>=sys-apps/haveged-1.7a
 	>=sys-apps/smartmontools-6.1
 	>=sys-apps/lm_sensors-3.3.4
-	mail-mta/msmtp
+	mail-mta/postfix
 	>=app-misc/fc-misc-scripts-1.3.0
 	~net-nds/sst-ldap-schemas-1.2.14
 	>=sys-apps/fc-node-integration-1.2.18.11
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.6
 	~x11-themes/fc-artwork-1.0.4
 	>=www-apps/vm-manager-1.2.18.12
-	>=sys-apps/fc-configuration-1.2.16.15
-	>=sys-kernel/foss-cloud-bin-3.10.55
-	>=app-emulation/sst-libvirt-hooks-1.1.2
+	>=sys-apps/fc-configuration-1.2.16.16
+	>=sys-kernel/foss-cloud-bin-3.10.55-r1
 	>=net-firewall/sst-netfilter-scripts-0.1.0
 "
 
