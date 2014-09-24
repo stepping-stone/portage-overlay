@@ -1,44 +1,8 @@
-From 820ca37e5defc9e774a190bf1e11ee8c7401c532 Mon Sep 17 00:00:00 2001
-From: Poornima G <pgurusid@redhat.com>
-Date: Fri, 6 Jun 2014 12:26:43 +0530
-Subject: [PATCH] glfs_fini: Clean up all the resources allocated in glfs_new.
-
-Initially even after calling glfs_fini(), all the threads created
-during init and many other resources like memory pool, iobuf pool,
-event pool and other memory allocs were not being freed.
-With this patch these resources are freed in glfs_fini().
-
-Change-Id: I96b9277541737aa8372b4e6c9eed380cb871e7c2
-BUG: 1093594
-Signed-off-by: Poornima G <pgurusid@redhat.com>
----
- api/src/glfs.c                 | 159 ++++++++++++++++++++-
- libglusterfs/src/event-epoll.c |  28 +++-
- libglusterfs/src/event-poll.c  |  27 +++-
- libglusterfs/src/event.c       |  12 ++
- libglusterfs/src/event.h       |   5 +
- libglusterfs/src/glusterfs.h   |   1 +
- libglusterfs/src/graph.c       |  30 +++-
- libglusterfs/src/inode.c       |  19 +++
- libglusterfs/src/inode.h       |   3 +
- libglusterfs/src/iobuf.c       |  14 +-
- libglusterfs/src/syncop.c      |  54 ++++++-
- libglusterfs/src/syncop.h      |   2 +
- libglusterfs/src/timer.c       |  29 +++-
- libglusterfs/src/timer.h       |   2 +
- libglusterfs/src/xlator.c      |  35 ++++-
- libglusterfs/src/xlator.h      |   3 +-
- tests/bugs/bug-1093594.c       | 313 +++++++++++++++++++++++++++++++++++++++++
- tests/bugs/bug-1093594.t       |  23 +++
- 18 files changed, 742 insertions(+), 17 deletions(-)
- create mode 100644 tests/bugs/bug-1093594.c
- create mode 100644 tests/bugs/bug-1093594.t
-
 diff --git a/api/src/glfs.c b/api/src/glfs.c
-index bcabb29..65abd52 100644
+index c463046..1a1fc9c 100644
 --- a/api/src/glfs.c
 +++ b/api/src/glfs.c
-@@ -717,6 +717,123 @@ glfs_init (struct glfs *fs)
+@@ -700,6 +700,121 @@ glfs_init (struct glfs *fs)
  	return ret;
  }
  
@@ -77,8 +41,6 @@ index bcabb29..65abd52 100644
 +                mem_pool_destroy (ctx->dict_data_pool);
 +        if (ctx->dict_pair_pool)
 +                mem_pool_destroy (ctx->dict_pair_pool);
-+        if (ctx->logbuf_pool)
-+                mem_pool_destroy (ctx->logbuf_pool);
 +
 +        pool = ctx->pool;
 +        if (pool) {
@@ -162,7 +124,7 @@ index bcabb29..65abd52 100644
  
  int
  glfs_fini (struct glfs *fs)
-@@ -727,6 +844,7 @@ glfs_fini (struct glfs *fs)
+@@ -710,6 +825,7 @@ glfs_fini (struct glfs *fs)
          glusterfs_ctx_t *ctx = NULL;
          call_pool_t     *call_pool = NULL;
          int             fs_init = 0;
@@ -170,7 +132,7 @@ index bcabb29..65abd52 100644
  
          ctx = fs->ctx;
  
-@@ -775,9 +893,48 @@ glfs_fini (struct glfs *fs)
+@@ -758,8 +874,47 @@ glfs_fini (struct glfs *fs)
                  glfs_subvol_done (fs, subvol);
          }
  
@@ -219,7 +181,6 @@ index bcabb29..65abd52 100644
 +
          return ret;
  }
- 
 diff --git a/libglusterfs/src/event-epoll.c b/libglusterfs/src/event-epoll.c
 index 06b3236..d392d9a 100644
 --- a/libglusterfs/src/event-epoll.c
@@ -378,10 +339,10 @@ index 7ed1824..1f4b13d 100644
  
  #endif /* _EVENT_H_ */
 diff --git a/libglusterfs/src/glusterfs.h b/libglusterfs/src/glusterfs.h
-index aad2315..93344b6 100644
+index 2e5d93f..38e2c99 100644
 --- a/libglusterfs/src/glusterfs.h
 +++ b/libglusterfs/src/glusterfs.h
-@@ -528,6 +528,7 @@ struct gf_flock {
+@@ -504,6 +504,7 @@ struct gf_flock {
  #define GF_UNUSED __attribute__((unused))
  
  int glusterfs_graph_prepare (glusterfs_graph_t *graph, glusterfs_ctx_t *ctx);
@@ -390,10 +351,10 @@ index aad2315..93344b6 100644
  int glusterfs_graph_activate (glusterfs_graph_t *graph, glusterfs_ctx_t *ctx);
  glusterfs_graph_t *glusterfs_graph_construct (FILE *fp);
 diff --git a/libglusterfs/src/graph.c b/libglusterfs/src/graph.c
-index 52e79ab..53087b0 100644
+index e76df1c..3de80fa 100644
 --- a/libglusterfs/src/graph.c
 +++ b/libglusterfs/src/graph.c
-@@ -763,14 +763,32 @@ glusterfs_graph_reconfigure (glusterfs_graph_t *oldgraph,
+@@ -738,14 +738,32 @@ glusterfs_graph_reconfigure (glusterfs_graph_t *oldgraph,
  }
  
  int
@@ -433,7 +394,7 @@ index 52e79ab..53087b0 100644
 +        return ret;
  }
 diff --git a/libglusterfs/src/inode.c b/libglusterfs/src/inode.c
-index d4eade8..6242053 100644
+index 15e0ccf..8b2c0f3 100644
 --- a/libglusterfs/src/inode.c
 +++ b/libglusterfs/src/inode.c
 @@ -1395,6 +1395,25 @@ out:
@@ -503,10 +464,10 @@ index 82ffe2d..56051e2 100644
  out:
          return;
 diff --git a/libglusterfs/src/syncop.c b/libglusterfs/src/syncop.c
-index 3dd622c..b18e84a 100644
+index 1f36e57..f3cd6eb 100644
 --- a/libglusterfs/src/syncop.c
 +++ b/libglusterfs/src/syncop.c
-@@ -400,10 +400,24 @@ synctask_create (struct syncenv *env, synctask_fn_t fn, synctask_cbk_t cbk,
+@@ -360,10 +360,24 @@ synctask_create (struct syncenv *env, synctask_fn_t fn, synctask_cbk_t cbk,
  {
          struct synctask *newtask = NULL;
          xlator_t        *this    = THIS;
@@ -531,7 +492,7 @@ index 3dd622c..b18e84a 100644
          newtask = CALLOC (1, sizeof (*newtask));
          if (!newtask)
                  return NULL;
-@@ -534,6 +548,10 @@ syncenv_task (struct syncproc *proc)
+@@ -494,6 +508,10 @@ syncenv_task (struct syncproc *proc)
                                                        &sleep_till);
                          if (!list_empty (&env->runq))
                                  break;
@@ -542,7 +503,7 @@ index 3dd622c..b18e84a 100644
                          if ((ret == ETIMEDOUT) &&
                              (env->procs > env->procmin)) {
                                  task = NULL;
-@@ -659,11 +677,45 @@ unlock:
+@@ -619,11 +637,45 @@ unlock:
          pthread_mutex_unlock (&env->mutex);
  }
  
@@ -590,10 +551,10 @@ index 3dd622c..b18e84a 100644
  
  
 diff --git a/libglusterfs/src/syncop.h b/libglusterfs/src/syncop.h
-index 16f3833..0b07557 100644
+index 68218bb..1c37eb2 100644
 --- a/libglusterfs/src/syncop.h
 +++ b/libglusterfs/src/syncop.h
-@@ -105,6 +105,8 @@ struct syncenv {
+@@ -104,6 +104,8 @@ struct syncenv {
          pthread_mutex_t     mutex;
          pthread_cond_t      cond;
  
@@ -676,10 +637,10 @@ index 2f963ad..e64b350 100644
 +gf_timer_registry_destroy (glusterfs_ctx_t *ctx);
  #endif /* _TIMER_H */
 diff --git a/libglusterfs/src/xlator.c b/libglusterfs/src/xlator.c
-index 1bded6d..dd3ec82 100644
+index 9ce5240..332f947 100644
 --- a/libglusterfs/src/xlator.c
 +++ b/libglusterfs/src/xlator.c
-@@ -533,9 +533,35 @@ xlator_list_destroy (xlator_list_t *list)
+@@ -530,9 +530,35 @@ xlator_list_destroy (xlator_list_t *list)
          return 0;
  }
  
@@ -716,7 +677,7 @@ index 1bded6d..dd3ec82 100644
  {
          volume_opt_list_t *vol_opt = NULL;
          volume_opt_list_t *tmp     = NULL;
-@@ -547,6 +573,12 @@ xlator_tree_free (xlator_t *tree)
+@@ -544,6 +570,12 @@ xlator_tree_free (xlator_t *tree)
                  return -1;
          }
  
@@ -729,7 +690,7 @@ index 1bded6d..dd3ec82 100644
          while (prev) {
                  trav = prev->next;
                  if (prev->dlhandle)
-@@ -562,7 +594,6 @@ xlator_tree_free (xlator_t *tree)
+@@ -559,7 +591,6 @@ xlator_tree_free (xlator_t *tree)
                          list_del_init (&vol_opt->list);
                          GF_FREE (vol_opt);
                  }
@@ -738,10 +699,10 @@ index 1bded6d..dd3ec82 100644
          }
  
 diff --git a/libglusterfs/src/xlator.h b/libglusterfs/src/xlator.h
-index 47ae6cd..c0bb2d2 100644
+index 1daa06e..064c18e 100644
 --- a/libglusterfs/src/xlator.h
 +++ b/libglusterfs/src/xlator.h
-@@ -919,7 +919,8 @@ int xlator_init (xlator_t *this);
+@@ -918,7 +918,8 @@ int xlator_init (xlator_t *this);
  int xlator_destroy (xlator_t *xl);
  
  int32_t xlator_tree_init (xlator_t *xl);
@@ -751,354 +712,3 @@ index 47ae6cd..c0bb2d2 100644
  
  void xlator_tree_fini (xlator_t *xl);
  
-diff --git a/tests/bugs/bug-1093594.c b/tests/bugs/bug-1093594.c
-new file mode 100644
-index 0000000..a35fa5f
---- /dev/null
-+++ b/tests/bugs/bug-1093594.c
-@@ -0,0 +1,313 @@
-+#include <glfs.h>
-+#include <glfs-handles.h>
-+#include <errno.h>
-+#include <stdio.h>
-+#include <stdlib.h>
-+#include <string.h>
-+
-+#define WRITE_SIZE 128*1024
-+#define READ_WRITE_LOOP 100
-+#define FOP_LOOP_COUNT 20
-+#define TEST_CASE_LOOP 20
-+
-+int gfapi = 1;
-+static int extension = 1;
-+
-+static int
-+large_number_of_fops (glfs_t *fs) {
-+        int       ret       = 0;
-+        int       i         = 0;
-+        glfs_fd_t *fd       = NULL;
-+        glfs_fd_t *fd1      = NULL;
-+        char      *dir1     = NULL, *dir2 = NULL, *filename1 = NULL, *filename2 = NULL;
-+        char      *buf      = NULL;
-+        struct stat sb      = {0, };
-+
-+	for (i=0 ; i<FOP_LOOP_COUNT ; i++) {
-+        	ret = asprintf (&dir1, "dir%d", extension);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "cannot construct filename (%s)",
-+                         	strerror (errno));
-+                	return ret;
-+        	}
-+
-+        	extension++;
-+
-+        	ret = glfs_mkdir (fs, dir1, 0755);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "mkdir(%s): %s\n", dir1, strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	fd = glfs_opendir (fs, dir1);
-+        	if (!fd) {
-+                	fprintf (stderr, "/: %s\n", strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_fsetxattr (fd,"user.dirfattr", "fsetxattr", 8, 0);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "fsetxattr(%s): %d (%s)\n", dir1, ret,
-+                        	strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_closedir (fd);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_closedir failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_rmdir (fs, dir1);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+	        ret = asprintf (&filename1, "file%d", extension);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "cannot construct filename (%s)",
-+                		strerror (errno));
-+                	return ret;
-+        	}
-+
-+        	ret = asprintf (&filename2, "file-%d", extension);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "cannot construct filename (%s)",
-+                        	strerror (errno));
-+                	return ret;
-+        	}
-+
-+                extension++;
-+
-+                fd = glfs_creat (fs, filename1, O_RDWR, 0644);
-+	        if (!fd) {
-+        	        fprintf (stderr, "%s: (%p) %s\n", filename1, fd,
-+                	        strerror (errno));
-+                	return -1;
-+        	}
-+
-+		ret = glfs_rename (fs, filename1, filename2);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_rename failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+                ret = glfs_lstat (fs, filename2, &sb);
-+                if (ret < 0) {
-+                        fprintf (stderr, "glfs_lstat failed with ret: %d (%s)\n",
-+                                ret, strerror (errno));
-+                        return -1;
-+                }
-+
-+                ret = glfs_close (fd);
-+                if (ret < 0) {
-+                        fprintf (stderr, "glfs_close failed with ret: %d (%s)\n",
-+                                ret, strerror (errno));
-+                        return -1;
-+                }
-+
-+                ret = glfs_unlink (fs, filename2);
-+                if (ret < 0) {
-+                        fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
-+                                ret, strerror (errno));
-+                        return -1;
-+                }
-+        }
-+}
-+
-+static int
-+large_read_write (glfs_t *fs) {
-+
-+        int       ret       = 0;
-+        int       j         = 0;
-+        glfs_fd_t *fd       = NULL;
-+        glfs_fd_t *fd1      = NULL;
-+        char      *filename = NULL;
-+        char      *buf      = NULL;
-+
-+        ret = asprintf (&filename, "filerw%d", extension);
-+        if (ret < 0) {
-+                fprintf (stderr, "cannot construct filename (%s)",
-+                         strerror (errno));
-+                return ret;
-+        }
-+
-+        extension++;
-+
-+        fd = glfs_creat (fs, filename, O_RDWR, 0644);
-+        if (!fd) {
-+        	fprintf (stderr, "%s: (%p) %s\n", filename, fd,
-+                        strerror (errno));
-+                return -1;
-+        }
-+
-+        buf = (char *) malloc (WRITE_SIZE);
-+        memset (buf, '-', WRITE_SIZE);
-+
-+        for (j = 0; j < READ_WRITE_LOOP; j++) {
-+        	ret = glfs_write (fd, buf, WRITE_SIZE, 0);
-+                if (ret < 0) {
-+                	fprintf (stderr, "Write(%s): %d (%s)\n", filename, ret,
-+                                strerror (errno));
-+                        return ret;
-+                }
-+        }
-+
-+        fd1 = glfs_open (fs, filename, O_RDWR);
-+        if (fd1 < 0) {
-+                fprintf (stderr, "Open(%s): %d (%s)\n", filename, ret,
-+                        strerror (errno));
-+                return -1;
-+        }
-+
-+        glfs_lseek (fd1, 0, SEEK_SET);
-+        for (j = 0; j < READ_WRITE_LOOP; j++) {
-+                ret = glfs_read (fd1, buf, WRITE_SIZE, 0);
-+                if (ret < 0) {
-+                        fprintf (stderr, "Read(%s): %d (%s)\n", filename, ret,
-+                                strerror (errno));
-+                        return ret;
-+                }
-+        }
-+
-+        for (j = 0; j < READ_WRITE_LOOP; j++) {
-+                ret = glfs_write (fd1, buf, WRITE_SIZE, 0);
-+                if (ret < 0) {
-+                        fprintf (stderr, "Write(%s): %d (%s)\n", filename, ret,
-+                                strerror (errno));
-+                        return ret;
-+                }
-+        }
-+
-+        glfs_close (fd);
-+        glfs_close (fd1);
-+        ret = glfs_unlink (fs, filename);
-+        if (ret < 0) {
-+                fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
-+                        ret, strerror (errno));
-+                return -1;
-+        }
-+
-+        free (buf);
-+        free (filename);
-+}
-+
-+static int
-+volfile_change (const char *volname) {
-+        int   ret = 0;
-+        char *cmd = NULL, *cmd1 = NULL;
-+
-+        ret = asprintf (&cmd, "gluster volume set %s stat-prefetch off",
-+                        volname);
-+        if (ret < 0) {
-+                fprintf (stderr, "cannot construct cli command string (%s)",
-+                         strerror (errno));
-+                return ret;
-+        }
-+
-+        ret = asprintf (&cmd, "gluster volume set %s stat-prefetch on",
-+                        volname);
-+        if (ret < 0) {
-+                fprintf (stderr, "cannot construct cli command string (%s)",
-+                         strerror (errno));
-+                return ret;
-+        }
-+
-+        ret = system (cmd);
-+        if (ret < 0) {
-+                fprintf (stderr, "stat-prefetch off on (%s) failed", volname);
-+                return ret;
-+        }
-+
-+        ret = system (cmd1);
-+        if (ret < 0) {
-+                fprintf (stderr, "stat-prefetch on on (%s) failed", volname);
-+                return ret;
-+        }
-+
-+        free (cmd);
-+        free (cmd1);
-+        return ret;
-+}
-+
-+int
-+main (int argc, char *argv[])
-+{
-+        glfs_t    *fs       = NULL;
-+        int       ret       = 0;
-+        int       i         = 0;
-+        glfs_fd_t *fd       = NULL;
-+        glfs_fd_t *fd1      = NULL;
-+        char      *topdir   = "topdir", *filename = "file1";
-+        char      *buf      = NULL;
-+
-+        if (argc != 2) {
-+                fprintf (stderr,
-+                        "Expect following args %s <Vol>\n"
-+                        ,argv[0]);
-+                return -1;
-+        }
-+
-+        for (i = 0; i < TEST_CASE_LOOP; i++) {
-+        	fs = glfs_new (argv[1]);
-+        	if (!fs) {
-+                	fprintf (stderr, "glfs_new: returned NULL (%s)\n",
-+                        	strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_set_volfile_server (fs, "tcp", "localhost", 24007);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_set_volfile_server failed ret:%d (%s)\n",
-+                	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_set_logging (fs, "/tmp/bug-fini-cleanup.log", 7);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_set_logging failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+        	ret = glfs_init (fs);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_init failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+
-+                ret = large_number_of_fops (fs);
-+                if (ret < 0)
-+                        return -1;
-+
-+                ret = large_read_write (fs);
-+                if (ret < 0)
-+                        return -1;
-+
-+                ret = volfile_change (argv[1]);
-+                if (ret < 0)
-+                        return -1;
-+
-+                ret = large_number_of_fops (fs);
-+                if (ret < 0)
-+                        return -1;
-+
-+                ret = large_read_write (fs);
-+                if (ret < 0)
-+                        return -1;
-+
-+        	ret = glfs_fini (fs);
-+        	if (ret < 0) {
-+                	fprintf (stderr, "glfs_fini failed with ret: %d (%s)\n",
-+                        	ret, strerror (errno));
-+                	return -1;
-+        	}
-+	}
-+        return 0;
-+}
-+
-diff --git a/tests/bugs/bug-1093594.t b/tests/bugs/bug-1093594.t
-new file mode 100644
-index 0000000..61d1d0c
---- /dev/null
-+++ b/tests/bugs/bug-1093594.t
-@@ -0,0 +1,23 @@
-+#!/bin/bash
-+. $(dirname $0)/../include.rc
-+. $(dirname $0)/../volume.rc
-+
-+cleanup;
-+
-+## Start and create a volume
-+TEST glusterd;
-+TEST pidof glusterd;
-+TEST $CLI volume info;
-+
-+TEST $CLI volume create $V0 $H0:$B0/${V0}{1,2};
-+TEST $CLI volume start $V0;
-+
-+cd $(dirname $0)/../../
-+./autogen.sh
-+./configure
-+make
-+gcc -L $(dirname $0)/../../api/src/.libs -lgfapi -I$(dirname $0)/../../api/src $(dirname $0)/bug-1093594.c -o $(dirname $0)/bug-1093594
-+TEST $(dirname $0)/bug-1093594 $V0
-+
-+cleanup;
-+
--- 
-2.1.0
-
