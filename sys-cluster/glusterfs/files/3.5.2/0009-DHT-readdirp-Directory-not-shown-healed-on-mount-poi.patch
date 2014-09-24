@@ -1,0 +1,151 @@
+From c53aab61b8ff5957a306f499565be0ab3ff0fb78 Mon Sep 17 00:00:00 2001
+From: Susant Palai <spalai@redhat.com>
+Date: Wed, 10 Sep 2014 21:24:41 +0530
+Subject: [PATCH 09/19] DHT/readdirp: Directory not shown/healed on mount point
+ if exists               on single brick(non first up subvolume).
+
+Problem: If snapshot is taken, when mkdir has succeeded only on
+hashed_subvolume, then after restoring snapshot the directory
+is not shown on mount point.
+
+Why:    dht_readdirp takes only those directory entries in to
+account, which are present on first_up_subvolume. Hence, if the
+"hashed subvolume" is not same as first_up_subvolume, it wont be listed
+on mount point and also not healed.
+
+Solution:
+Case 1: (Rebalance not running)If hashed subvolume is NULL or down then
+filter in first_up_subvolume. Other wise the corresponding hashed subvolume
+will take care of the directory entry.
+
+Case 2: If readdirp_optimize option is turned on then read from first_up_subvol
+
+Change-Id: Idaad28f1c9f688dbfb1a8a3ab8b244510c02365e
+BUG: 1139103
+Signed-off-by: Susant Palai <spalai@redhat.com>
+Reviewed-on: http://review.gluster.org/7599
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit b8f3aab95f01ac7d590a5ba490e890d9cf8c2e50)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8713
+Reviewed-by: Jeff Darcy <jdarcy@redhat.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/dht/src/dht-common.c | 41 +++++++++++++++++++++++++++++++-----
+ xlators/cluster/dht/src/dht-common.h |  3 +++
+ xlators/cluster/dht/src/dht-helper.c | 13 ++++++++++++
+ 3 files changed, 52 insertions(+), 5 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-common.c b/xlators/cluster/dht/src/dht-common.c
+index 4c85cd3..57a1590 100644
+--- a/xlators/cluster/dht/src/dht-common.c
++++ b/xlators/cluster/dht/src/dht-common.c
+@@ -3045,7 +3045,6 @@ err:
+         return 0;
+ }
+ 
+-
+ int
+ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
+                   int op_errno, gf_dirent_t *orig_entries, dict_t *xdata)
+@@ -3061,7 +3060,9 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
+         dht_layout_t *layout = 0;
+         dht_conf_t   *conf   = NULL;
+         xlator_t     *subvol = 0;
++        xlator_t     *hashed_subvol = 0;
+         int           ret    = 0;
++        int           readdir_optimize = 0;
+ 
+         INIT_LIST_HEAD (&entries.list);
+         prev = cookie;
+@@ -3076,18 +3077,48 @@ dht_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this, int op_ret,
+ 
+         layout = local->layout;
+ 
++        if (conf->readdir_optimize == _gf_true)
++                 readdir_optimize = 1;
++
+         list_for_each_entry (orig_entry, (&orig_entries->list), list) {
+                 next_offset = orig_entry->d_off;
+-                if (check_is_dir (NULL, (&orig_entry->d_stat), NULL) &&
+-                    (prev->this != local->first_up_subvol)) {
+-                        continue;
++                if (check_is_dir (NULL, (&orig_entry->d_stat), NULL)) {
++
++                /*Directory entries filtering :
++                 * a) If rebalance is running, pick from first_up_subvol
++                 * b) (rebalance not running)hashed subvolume is NULL or
++                 * down then filter in first_up_subvolume. Other wise the
++                 * corresponding hashed subvolume will take care of the
++                 * directory entry.
++                 */
++
++                        if (readdir_optimize) {
++                                if (prev->this == local->first_up_subvol)
++                                        goto list;
++                                else
++                                        continue;
++
++                        }
++
++                        hashed_subvol = dht_layout_search (this, layout, \
++                                                           orig_entry->d_name);
++
++                        if (prev->this == hashed_subvol)
++                                goto list;
++                        if ((hashed_subvol
++                                && dht_subvol_status (conf, hashed_subvol))
++                                ||(prev->this != local->first_up_subvol))
++                                continue;
++
++                        goto list;
+                 }
++
+                 if (check_is_linkfile (NULL, (&orig_entry->d_stat),
+                                        orig_entry->dict,
+                                        conf->link_xattr_name)) {
+                         continue;
+                 }
+-
++list:
+                 entry = gf_dirent_for_name (orig_entry->d_name);
+                 if (!entry) {
+ 
+diff --git a/xlators/cluster/dht/src/dht-common.h b/xlators/cluster/dht/src/dht-common.h
+index d391b87..e986185 100644
+--- a/xlators/cluster/dht/src/dht-common.h
++++ b/xlators/cluster/dht/src/dht-common.h
+@@ -783,4 +783,7 @@ dht_inodectx_dump (xlator_t *this, inode_t *inode);
+ int
+ dht_inode_ctx_get1 (xlator_t *this, inode_t *inode, xlator_t **subvol);
+ 
++int
++dht_subvol_status (dht_conf_t *conf, xlator_t *subvol);
++
+ #endif/* _DHT_H */
+diff --git a/xlators/cluster/dht/src/dht-helper.c b/xlators/cluster/dht/src/dht-helper.c
+index eb6cd67..5d77739 100644
+--- a/xlators/cluster/dht/src/dht-helper.c
++++ b/xlators/cluster/dht/src/dht-helper.c
+@@ -1164,3 +1164,16 @@ int dht_inode_ctx_set (inode_t *inode, xlator_t *this, dht_inode_ctx_t *ctx)
+ out:
+         return ret;
+ }
++
++int
++dht_subvol_status (dht_conf_t *conf, xlator_t *subvol)
++{
++        int i;
++
++        for (i=0 ; i < conf->subvolume_cnt; i++) {
++                if (conf->subvolumes[i] == subvol) {
++                        return conf->subvolume_status[i];
++                }
++        }
++        return 0;
++}
+-- 
+2.1.0
+

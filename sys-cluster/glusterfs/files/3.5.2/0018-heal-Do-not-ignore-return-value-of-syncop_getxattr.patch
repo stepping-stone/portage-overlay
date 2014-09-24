@@ -1,0 +1,84 @@
+From 6470b905e2e9e5e3f7a6b1541358b9607efa4b74 Mon Sep 17 00:00:00 2001
+From: Ravishankar N <ravishankar@redhat.com>
+Date: Sun, 14 Sep 2014 13:46:33 +0000
+Subject: [PATCH 18/19] heal:Do not ignore return value of syncop_getxattr()
+
+Problem:
+In glfs-heal.c, we are currently ignoring the return value of
+syncop_getxattr() in glfsh_process_entries(). This can cause random characters
+to be printed in the heal-info command when stale entries are present in
+indices/xattrop directory.
+
+Fix:
+Check and purge stale entries instead of printing them, depending on the 'ret'
+value of syncop_getxattr().
+
+Change-Id: I6c87f3ab3fecde48cdbf7578a85782a1d2f1d55b
+BUG: 1141558
+Signed-off-by: Ravishankar N <ravishankar@redhat.com>
+Reviewed-on: http://review.gluster.org/8711
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ heal/src/glfs-heal.c | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/heal/src/glfs-heal.c b/heal/src/glfs-heal.c
+index 8240e7b..78716ad 100644
+--- a/heal/src/glfs-heal.c
++++ b/heal/src/glfs-heal.c
+@@ -141,11 +141,12 @@ _is_possibly_healing (dict_t *xattr_rsp)
+         return _gf_false;
+ }
+ 
+-#define RESET_ENTRIES(loc, shf, ope, rsp, grsp) \
++#define RESET_ENTRIES(loc, shf, ope, pth, rsp, grsp) \
+         do {                                    \
+                 loc_wipe (&loc);                \
+                 shf = 0;                        \
+                 ope = 0;                        \
++                pth = NULL;                     \
+                 if (rsp) {                      \
+                         dict_unref (rsp);       \
+                         rsp = NULL;             \
+@@ -216,7 +217,7 @@ glfsh_process_entries (xlator_t *xl, loc_t *parentloc, gf_dirent_t *entries,
+                     (strcmp (entry->d_name, "..") == 0))
+                         continue;
+ 
+-                RESET_ENTRIES (entry_loc, sh_failed, op_errno, xattr_rsp,
++                RESET_ENTRIES (entry_loc, sh_failed, op_errno, path, xattr_rsp,
+                                getxattr_rsp);
+ 
+                 ret = _set_self_heal_vxattrs (xattr_req);
+@@ -248,10 +249,16 @@ glfsh_process_entries (xlator_t *xl, loc_t *parentloc, gf_dirent_t *entries,
+ 
+                 ret = syncop_getxattr (xl, &entry_loc, &getxattr_rsp,
+                                        GFID_TO_PATH_KEY);
++                if (ret < 0) {
++                        op_errno = errno;
++                        if (op_errno == ENOENT || op_errno == ESTALE)
++                                glfsh_remove_stale_index (xl, parentloc,
++                                                          entry->d_name);
++                        continue;
++                }
+ 
+                 ret = dict_get_str (getxattr_rsp, GFID_TO_PATH_KEY, &path);
+ 
+-
+                 (*num_entries)++;
+                 if (_is_possibly_healing (xattr_rsp)) {
+                         printf ("%s - Possibly undergoing heal\n",
+@@ -262,7 +269,8 @@ glfsh_process_entries (xlator_t *xl, loc_t *parentloc, gf_dirent_t *entries,
+         }
+         ret = 0;
+ out:
+-        RESET_ENTRIES (entry_loc, sh_failed, op_errno, xattr_rsp, getxattr_rsp);
++        RESET_ENTRIES (entry_loc, sh_failed, op_errno, path, xattr_rsp,
++                       getxattr_rsp);
+         return ret;
+ }
+ 
+-- 
+2.1.0
+

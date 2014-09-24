@@ -1,0 +1,204 @@
+From 97ada676f981705ebf2749327b5e2349e5028446 Mon Sep 17 00:00:00 2001
+From: Jeff Darcy <jdarcy@redhat.com>
+Date: Wed, 10 Sep 2014 21:28:44 +0530
+Subject: [PATCH 10/19] dht: fix rename race
+
+If two clients try to rename the same file at the same time, we
+sometimes end up with *no file at all* in either the old or new
+location.  That's kind of bad.  The culprit seems to be some overly
+aggressive cleanup code.  AFAICT, based on today's study of the code,
+the intent of the changed section is to remove any linkfile we might
+have created before the actual rename.  However, what we're removing
+might not be our extra link.  If we're racing with another client that's
+also doing a rename, it might be the only remaining link to the user's
+data.  The solution, which is good enough to pass this test but almost
+certainly still not complete, is to be more selective about when we do
+this unlink.  Now, we only do it if we know that, at some point, we did
+in fact create the link without error (notably ENOENT on the source or
+EEXIST on the destination) ourselves.
+
+Change-Id: I8d8cce150b6f8b372c9fb813c90be58d69f8eb7b
+BUG: 1129527
+Signed-off-by: Jeff Darcy <jdarcy@redhat.com>
+Reviewed-on: http://review.gluster.org/8269
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit 950f9d8abe714708ca62b86f304e7417127e1132)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8714
+---
+ tests/bugs/bug-1117851.t             | 102 +++++++++++++++++++++++++++++++++++
+ xlators/cluster/dht/src/dht-common.h |   1 +
+ xlators/cluster/dht/src/dht-rename.c |  12 +++--
+ 3 files changed, 112 insertions(+), 3 deletions(-)
+ create mode 100755 tests/bugs/bug-1117851.t
+
+diff --git a/tests/bugs/bug-1117851.t b/tests/bugs/bug-1117851.t
+new file mode 100755
+index 0000000..8292058
+--- /dev/null
++++ b/tests/bugs/bug-1117851.t
+@@ -0,0 +1,102 @@
++#!/bin/bash
++
++. $(dirname $0)/../include.rc
++. $(dirname $0)/../volume.rc
++
++create_files () {
++	for i in {1..1000}; do
++		orig=$(printf %s/abc%04d $1 $i)
++		real=$(printf %s/src%04d $1 $i)
++		# Make sure lots of these have linkfiles.
++		echo "This is file $i" > $orig
++		mv $orig $real
++	done
++	sync
++}
++
++move_files_inner () {
++	sfile=$M0/status_$(basename $1)
++	echo "running" > $sfile
++	for i in {1..1000}; do
++		src=$(printf %s/src%04d $1 $i)
++		dst=$(printf %s/dst%04d $1 $i)
++		mv $src $dst 2> /dev/null
++	done
++	echo "done" > $sfile
++}
++
++move_files () {
++	move_files_inner $* &
++}
++
++check_files () {
++	errors=0
++	warnings=0
++	for i in {1..1000}; do
++		if [ ! -f $(printf %s/dst%04d $1 $i) ]; then
++			if [ -f $(printf %s/src%04d $1 $i) ]; then
++				# We do hit this sometimes, though very rarely.
++				# It's a bug.  It's just not *this* bug.
++				# Therefore, instead of allowing it to cause
++				# spurious test failures, we let it slide for
++				# now.  Some day, when that other bug is fixed,
++				# I hope I remember to come back and strengthen
++				# this test accordingly.
++				echo "file $i didnt get moved" > /dev/stderr
++				#warnings=$((warnings+1))
++			else
++				echo "file $i is MISSING" > /dev/stderr
++				errors=$((errors+1))
++			fi
++		fi
++	done
++	if [ $((errors+warnings)) != 0 ]; then
++		: ls -l $1 > /dev/stderr
++	fi
++	return $errors
++}
++
++cleanup;
++
++TEST glusterd
++TEST pidof glusterd
++TEST $CLI volume info;
++
++TEST $CLI volume create $V0 replica 2 $H0:$B0/${V0}{1,2,3,4,5,6};
++
++EXPECT "$V0" volinfo_field $V0 'Volume Name';
++EXPECT 'Created' volinfo_field $V0 'Status';
++EXPECT '6' brick_count $V0
++
++TEST $CLI volume start $V0;
++EXPECT 'Started' volinfo_field $V0 'Status';
++
++## Mount FUSE with caching disabled (read-write)
++TEST glusterfs --entry-timeout=0 --attribute-timeout=0 -s $H0 --volfile-id $V0 $M0;
++
++TEST create_files $M0
++
++## Mount FUSE with caching disabled (read-write) again
++TEST glusterfs --entry-timeout=0 --attribute-timeout=0 -s $H0 --volfile-id $V0 $M1;
++
++TEST move_files $M0
++TEST move_files $M1
++
++# It's regrettable that renaming 1000 files might take more than 30 seconds,
++# but on our test systems sometimes it does, so double the time from what we'd
++# use otherwise.
++EXPECT_WITHIN 60 "done" cat $M0/status_0
++EXPECT_WITHIN 60 "done" cat $M1/status_1
++
++TEST umount $M0
++TEST umount $M1
++TEST glusterfs --entry-timeout=0 --attribute-timeout=0 -s $H0 --volfile-id $V0 $M0;
++TEST check_files $M0
++
++TEST $CLI volume stop $V0;
++EXPECT 'Stopped' volinfo_field $V0 'Status';
++
++TEST $CLI volume delete $V0;
++TEST ! $CLI volume info $V0;
++
++cleanup;
+diff --git a/xlators/cluster/dht/src/dht-common.h b/xlators/cluster/dht/src/dht-common.h
+index e986185..dc23bfa 100644
+--- a/xlators/cluster/dht/src/dht-common.h
++++ b/xlators/cluster/dht/src/dht-common.h
+@@ -186,6 +186,7 @@ struct dht_local {
+         struct dht_rebalance_ rebalance;
+         xlator_t        *first_up_subvol;
+ 
++        gf_boolean_t     added_link;
+ };
+ typedef struct dht_local dht_local_t;
+ 
+diff --git a/xlators/cluster/dht/src/dht-rename.c b/xlators/cluster/dht/src/dht-rename.c
+index 925538c..d092139 100644
+--- a/xlators/cluster/dht/src/dht-rename.c
++++ b/xlators/cluster/dht/src/dht-rename.c
+@@ -421,8 +421,9 @@ dht_rename_cleanup (call_frame_t *frame)
+         if (dst_hashed != src_hashed && dst_hashed != src_cached)
+                 call_cnt++;
+ 
+-        if (src_cached != dst_hashed)
++        if (local->added_link && (src_cached != dst_hashed)) {
+                 call_cnt++;
++        }
+ 
+         local->call_cnt = call_cnt;
+ 
+@@ -451,7 +452,7 @@ dht_rename_cleanup (call_frame_t *frame)
+                 xattr_new = NULL;
+         }
+ 
+-        if (src_cached != dst_hashed) {
++        if (local->added_link && (src_cached != dst_hashed)) {
+                 dict_t *xattr_new = NULL;
+ 
+                 gf_log (this->name, GF_LOG_TRACE,
+@@ -764,8 +765,12 @@ dht_rename_links_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                         "link/file on %s failed (%s)",
+                         prev->this->name, strerror (op_errno));
+                 local->op_ret   = -1;
+-                if (op_errno != ENOENT)
++                if (op_errno != ENOENT) {
+                         local->op_errno = op_errno;
++                        if (prev->this == local->src_cached) {
++                                local->added_link = _gf_false;
++                        }
++                }
+         } else if (local->src_cached == prev->this) {
+                 /* merge of attr returned only from linkfile creation */
+                 dht_iatt_merge (this, &local->stbuf, stbuf, prev->this);
+@@ -899,6 +904,7 @@ dht_rename_create_links (call_frame_t *frame)
+                         DHT_MARKER_DONT_ACCOUNT(xattr_new);
+                 }
+ 
++                local->added_link = _gf_true;
+ 		STACK_WIND (frame, dht_rename_links_cbk,
+ 			    src_cached, src_cached->fops->link,
+ 			    &local->loc, &local->loc2, xattr_new);
+-- 
+2.1.0
+

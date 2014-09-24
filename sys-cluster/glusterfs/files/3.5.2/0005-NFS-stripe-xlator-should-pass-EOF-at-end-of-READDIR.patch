@@ -1,0 +1,82 @@
+From b47ce75a49dee95da17630e735db50baa9420729 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Thu, 21 Aug 2014 18:23:38 +0200
+Subject: [PATCH 05/19] NFS: stripe-xlator should pass EOF at end of READDIR
+
+NFS READDIR replies are made of a header, a sequence of
+entries, and a EOF flag. When GlusterFS's NFS server is
+used along with stripe xlator, it fails to set the EOF
+flag, which violates NFS RFC and confuses some clients.
+
+The bug is caused because nfs xlator sets EOF if it gets
+op_errno set to ENOENT. That value is produced in storage
+xlator and propagated through server, client, and other
+xlators until stripe xlator handles it. stripe only passed
+op_errno if op_ret < 0, which is not the case here. This
+change set adds a special case for that situation to fix
+the problem.
+
+Cherry picked from commit 9b5231e5c98b8cfa116838287c7a14042702795f:
+> Change-Id: Ie6db94b0515292387cfb04c1e4a9363f34fcd19a
+> BUG: 1130969
+> Reported-by: Emmanuel Dreyfus <manu@netbsd.org>
+> Signed-off-by: Niels de Vos <ndevos@redhat.com>
+> Reviewed-on: http://review.gluster.org/8493
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Santosh Pradhan <spradhan@redhat.com>
+> Reviewed-by: Kaleb KEITHLEY <kkeithle@redhat.com>
+> Reviewed-by: Emmanuel Dreyfus <manu@netbsd.org>
+> Tested-by: Emmanuel Dreyfus <manu@netbsd.org>
+
+Change-Id: Ie6db94b0515292387cfb04c1e4a9363f34fcd19a
+BUG: 1132391
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/8509
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Santosh Pradhan <spradhan@redhat.com>
+---
+ xlators/cluster/stripe/src/stripe.c | 19 ++++++++-----------
+ 1 file changed, 8 insertions(+), 11 deletions(-)
+
+diff --git a/xlators/cluster/stripe/src/stripe.c b/xlators/cluster/stripe/src/stripe.c
+index e9374eb..be22327 100644
+--- a/xlators/cluster/stripe/src/stripe.c
++++ b/xlators/cluster/stripe/src/stripe.c
+@@ -4879,26 +4879,23 @@ stripe_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ 
+         LOCK (&frame->lock);
+         {
+-                if (op_ret == -1) {
+-                        gf_log (this->name, GF_LOG_WARNING,
+-                                "%s returned error %s",
+-                                prev->this->name, strerror (op_errno));
+-                        local->op_errno = op_errno;
+-                        local->op_ret = op_ret;
+-                        goto unlock;
+-                } else {
+-                        local->op_ret = op_ret;
++                local->op_errno = op_errno;
++                local->op_ret = op_ret;
++
++                if (op_ret != -1) {
+                         list_splice_init (&orig_entries->list,
+                                           &local->entries.list);
+                         local->wind_count = op_ret;
+                 }
+ 
+         }
+-unlock:
+         UNLOCK (&frame->lock);
+ 
+-        if (op_ret == -1)
++        if (op_ret == -1) {
++                gf_log (this->name, GF_LOG_WARNING, "%s returned error %s",
++                        prev->this->name, strerror (op_errno));
+                 goto out;
++        }
+ 
+         xattrs = dict_new ();
+         if (xattrs)
+-- 
+2.1.0
+

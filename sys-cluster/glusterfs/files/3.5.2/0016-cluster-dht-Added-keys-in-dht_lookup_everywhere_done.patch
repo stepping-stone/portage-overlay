@@ -1,0 +1,128 @@
+From 6f015ab7771f0ab515b57b5333777f04a04167e6 Mon Sep 17 00:00:00 2001
+From: Venkatesh Somyajulu <vsomyaju@redhat.com>
+Date: Wed, 10 Sep 2014 23:00:07 +0530
+Subject: [PATCH 16/19] cluster/dht: Added keys in dht_lookup_everywhere_done
+
+Case where both cached  (C1)  and hashed file are found,
+but hash does not point to above cached node (C1), then
+dont unlink if either fd-is-open on hashed or
+linkto-xattr is not found.
+
+Change-Id: I7ef49b88d2c88bf9d25d3aa7893714e6c0766c67
+BUG: 1129541
+Signed-off-by: Venkatesh Somyajulu <vsomyaju@redhat.com>
+
+Change-Id: I86d0a21d4c0501c45d837101ced4f96d6fedc5b9
+Signed-off-by: Venkatesh Somyajulu <vsomyaju@redhat.com>
+Reviewed-on: http://review.gluster.org/8429
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: susant palai <spalai@redhat.com>
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit 718f10e0d68715be2d73e677974629452485c699)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8720
+Reviewed-by: Jeff Darcy <jdarcy@redhat.com>
+---
+ xlators/cluster/dht/src/dht-common.c | 76 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 72 insertions(+), 4 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-common.c b/xlators/cluster/dht/src/dht-common.c
+index 2bb3c51..586321f 100644
+--- a/xlators/cluster/dht/src/dht-common.c
++++ b/xlators/cluster/dht/src/dht-common.c
+@@ -809,6 +809,59 @@ dht_lookup_unlink_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ }
+ 
+ int
++dht_lookup_unlink_of_false_linkto_cbk (call_frame_t *frame, void *cookie,
++                                       xlator_t *this, int op_ret, int op_errno,
++                                       struct iatt *preparent,
++                                       struct iatt *postparent, dict_t *xdata)
++{
++        int             this_call_cnt = 0;
++        dht_local_t     *local = NULL;
++        const char      *path =  NULL;
++
++        local =  (dht_local_t*)frame->local;
++        path = local->loc.path;
++
++        gf_log (this->name, GF_LOG_INFO, "lookup_unlink returned with "
++                "op_ret -> %d and op-errno -> %d for %s", op_ret, op_errno,
++                ((path == NULL)? "null" : path ));
++
++        this_call_cnt = dht_frame_return (frame);
++        if (is_last_call (this_call_cnt)) {
++
++                if (op_ret == 0) {
++                        dht_lookup_everywhere_done (frame, this);
++                } else {
++                       /*When dht_lookup_everywhere is performed, one cached
++                         *and one hashed file was found and hashed file does
++                         *not point to the above mentioned cached node. So it
++                         *was considered as stale and an unlink was performed.
++                         *But unlink fails. So may be rebalance is in progress.
++                        *now ideally we have two data-files. One obtained during
++                         *lookup_everywhere and one where unlink-failed. So
++                         *at this point in time we cannot decide which one to
++                         *choose because there are chances of first cached
++                         *file is truncated after rebalance and if it is choosen
++                        *as cached node, application will fail. So return EIO.*/
++
++                        if (op_errno == EBUSY) {
++
++                                gf_log (this->name, GF_LOG_ERROR,
++                                        "Could not unlink the linkto file as "
++                                        "either fd is open and/or linkto xattr "
++                                        "is set for %s",
++                                        ((path == NULL)? "null":path));
++
++                        }
++                        DHT_STACK_UNWIND (lookup, frame, -1, EIO, NULL, NULL,
++                                          NULL, NULL);
++
++                }
++        }
++
++        return 0;
++}
++
++int
+ dht_lookup_unlink_stale_linkto_cbk (call_frame_t *frame, void *cookie,
+                                     xlator_t *this, int op_ret, int op_errno,
+                                     struct iatt *preparent,
+@@ -1041,12 +1094,27 @@ dht_lookup_everywhere_done (call_frame_t *frame, xlator_t *this)
+                         } else {
+ 
+                                local->skip_unlink.handle_valid_link = _gf_false;
+-                                if (local->skip_unlink.opend_fd_count == 0) {
+-                                        local->call_cnt = 1;
+-                                        STACK_WIND (frame, dht_lookup_unlink_cbk,
++                               if (local->skip_unlink.opend_fd_count == 0) {
++
++
++                          ret = dht_fill_dict_to_avoid_unlink_of_migrating_file
++                                  (local->xattr_req);
++
++
++                                        if (ret) {
++                                          DHT_STACK_UNWIND (lookup, frame, -1,
++                                                            EIO, NULL, NULL,
++                                                            NULL, NULL);
++                                        } else {
++                                                local->call_cnt = 1;
++                                                STACK_WIND (frame,
++                                          dht_lookup_unlink_of_false_linkto_cbk,
+                                                     hashed_subvol,
+                                                     hashed_subvol->fops->unlink,
+-                                                    &local->loc, 0, NULL);
++                                                    &local->loc, 0,
++                                                    local->xattr_req);
++                                        }
++
+                                         return 0;
+ 
+                                 }
+-- 
+2.1.0
+

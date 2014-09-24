@@ -1,0 +1,67 @@
+From 36fb486b60bf786a8ac55512175c9f81a5f031e1 Mon Sep 17 00:00:00 2001
+From: Krutika Dhananjay <kdhananj@redhat.com>
+Date: Thu, 18 Sep 2014 14:36:38 +0530
+Subject: [PATCH 19/19] cluster/dht: Fix dict_t leaks in rebalance process'
+ execution path
+
+        Backport of: http://review.gluster.org/8763
+
+Two dict_t objects are leaked for every file migrated in success codepath.
+It is the caller's responsibility to unref dict that it gets from calls to
+syncop_getxattr(); and rebalance performs two syncop_getxattr()s per file
+without freeing them.
+
+Also, syncop_getxattr() on GF_XATTR_LINKINFO_KEY doesn't seem to be using
+the response dict. Hence, NULL is now passed as opposed to @dict to
+syncop_getxattr().
+
+Change-Id: I89d72bf5b8d75571ab33ff44953adf8e542826ef
+BUG: 1142052
+Signed-off-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-on: http://review.gluster.org/8784
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/dht/src/dht-rebalance.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-rebalance.c b/xlators/cluster/dht/src/dht-rebalance.c
+index 760e9b3..adf723a 100644
+--- a/xlators/cluster/dht/src/dht-rebalance.c
++++ b/xlators/cluster/dht/src/dht-rebalance.c
+@@ -1227,6 +1227,12 @@ gf_defrag_migrate_data (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+                 free_entries = _gf_true;
+ 
+                 list_for_each_entry_safe (entry, tmp, &entries.list, list) {
++
++                        if (dict) {
++                                dict_unref (dict);
++                                dict = NULL;
++                        }
++
+                         if (defrag->defrag_status != GF_DEFRAG_STATUS_STARTED) {
+                                 ret = 1;
+                                 goto out;
+@@ -1322,9 +1328,6 @@ gf_defrag_migrate_data (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+ 
+                         uuid_str = NULL;
+ 
+-                        dict_del (dict, GF_XATTR_NODE_UUID_KEY);
+-
+-
+                         /* if distribute is present, it will honor this key.
+                          * -1, ENODATA is returned if distribute is not present
+                          * or file doesn't have a link-file. If file has
+@@ -1332,7 +1335,7 @@ gf_defrag_migrate_data (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+                          * and also that guarantees that file has to be mostly
+                          * migrated */
+ 
+-                        ret = syncop_getxattr (this, &entry_loc, &dict,
++                        ret = syncop_getxattr (this, &entry_loc, NULL,
+                                                GF_XATTR_LINKINFO_KEY);
+                         if (ret < 0) {
+                                 if (errno != ENODATA) {
+-- 
+2.1.0
+

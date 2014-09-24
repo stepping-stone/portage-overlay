@@ -1,0 +1,49 @@
+From 53204bd61d3f8c15e92a90a2497e4d4218f2b729 Mon Sep 17 00:00:00 2001
+From: Santosh Kumar Pradhan <spradhan@redhat.com>
+Date: Tue, 9 Sep 2014 12:06:29 +0530
+Subject: [PATCH 06/19] gNFS: Fix memory leak in setacl code path
+
+If ACL is set on a file in Gluster NFS mount (setfacl command),
+and it succeed, then the NFS call state data is leaked. Though
+all the failure code path frees up the memory.
+
+Impact: There is a OOM kill i.e. vdsm invoked oom-killer during
+rebalance and Killed process 4305, UID 0, (glusterfs nfs process)
+
+FIX:
+Make sure to deallocate the memory for call state in acl3_setacl_cbk()
+using nfs3_call_state_wipe().
+
+Cherry picked from commit 5c869aea79c0f304150eac014c7177e74ce0852e:
+> Change-Id: I9caa3f851e49daaba15be3eec626f1f2dd8e45b3
+> BUG: 1139195
+> Signed-off-by: Santosh Kumar Pradhan <spradhan@redhat.com>
+> Reviewed-on: http://review.gluster.org/8651
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Niels de Vos <ndevos@redhat.com>
+
+Change-Id: Ia4fd03ce53a729c1a2bca86e507c39822a35efe1
+BUG: 1139245
+Signed-off-by: Santosh Kumar Pradhan <spradhan@redhat.com>
+Reviewed-on: http://review.gluster.org/8661
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+---
+ xlators/nfs/server/src/acl3.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/xlators/nfs/server/src/acl3.c b/xlators/nfs/server/src/acl3.c
+index 566e43a..17bbd37 100644
+--- a/xlators/nfs/server/src/acl3.c
++++ b/xlators/nfs/server/src/acl3.c
+@@ -464,6 +464,7 @@ acl3_setacl_cbk (call_frame_t *frame, void *cookie,
+ 
+         acl3svc_submit_reply (cs->req, (void *)&cs->args.setaclreply,
+                               (acl3_serializer)xdr_serialize_setaclreply);
++        nfs3_call_state_wipe (cs);
+         return 0;
+ }
+ 
+-- 
+2.1.0
+

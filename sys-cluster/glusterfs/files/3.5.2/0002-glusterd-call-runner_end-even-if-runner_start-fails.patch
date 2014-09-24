@@ -1,0 +1,50 @@
+From b9a52cc273cafe26b856331fcd9a804e876710a8 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Fri, 15 Aug 2014 09:45:28 +0200
+Subject: [PATCH 02/19] glusterd: call runner_end even if runner_start fails
+
+Cherry picked from commit aa199093fdf37dcd87a73cea83f9b9164d5800c5:
+> Change-Id: I5eca01a131307ba3be2aed4922eea73025ff284c
+> BUG: 1081013
+> Signed-off-by: Jeff Darcy <jdarcy@redhat.com>
+> Reviewed-on: http://review.gluster.org/7360
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Niels de Vos <ndevos@redhat.com>
+> Reviewed-by: Krishnan Parthasarathi <kparthas@redhat.com>
+> Reviewed-by: Anand Avati <avati@redhat.com>
+
+Change-Id: I5eca01a131307ba3be2aed4922eea73025ff284c
+BUG: 1081016
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/8490
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Kaleb KEITHLEY <kkeithle@redhat.com>
+---
+ xlators/mgmt/glusterd/src/glusterd-utils.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/xlators/mgmt/glusterd/src/glusterd-utils.c b/xlators/mgmt/glusterd/src/glusterd-utils.c
+index ded09f1..004a1a0 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-utils.c
++++ b/xlators/mgmt/glusterd/src/glusterd-utils.c
+@@ -5067,6 +5067,17 @@ glusterd_add_inode_size_to_dict (dict_t *dict, int count)
+                         "size for %s : %s package missing", fs_name,
+                         ((strcmp (fs_name, "xfs")) ?
+                          "e2fsprogs" : "xfsprogs"));
++                /*
++                 * Runner_start might return an error after the child has
++                 * been forked, e.g. if the program isn't there.  In that
++                 * case, we still need to call runner_end to reap the
++                 * child and free resources.  Fortunately, that seems to
++                 * be harmless for other kinds of failures.
++                 */
++                if (runner_end(&runner)) {
++                        gf_log (THIS->name, GF_LOG_ERROR,
++                                "double failure calling runner_end");
++                }
+                 goto out;
+         }
+ 
+-- 
+2.1.0
+

@@ -1,0 +1,32 @@
+From 6dbd3cc4f0c6a04edfcbb54079543beccb8422f3 Mon Sep 17 00:00:00 2001
+From: Vijay Bellur <vbellur@redhat.com>
+Date: Tue, 26 Aug 2014 19:29:44 +0530
+Subject: [PATCH 04/19] cluster/afr: Fix a minor typo.
+
+Change-Id: I2e1bb21febb6754ed8772df6342c5c06aac95046
+BUG: 1133949
+Signed-off-by: Vijay Bellur <vbellur@redhat.com>
+Reviewed-on: http://review.gluster.org/8545
+Reviewed-by: Humble Devassy Chirammal <humble.devassy@gmail.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/afr/src/afr-self-heal-common.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/xlators/cluster/afr/src/afr-self-heal-common.c b/xlators/cluster/afr/src/afr-self-heal-common.c
+index 8861870..dee596a 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-common.c
++++ b/xlators/cluster/afr/src/afr-self-heal-common.c
+@@ -2843,7 +2843,7 @@ afr_log_self_heal_completion_status (afr_local_t *local, gf_loglevel_t loglvl)
+         ADD_FMT_STRING_SYNC (sh_log, off, "metadata",
+                              all_status.metadata_self_heal, print_log);
+         if (sh->background) {
+-                ADD_FMT_STRING_SYNC (sh_log, off, "backgroung data",
++                ADD_FMT_STRING_SYNC (sh_log, off, "background data",
+                                 all_status.data_self_heal, print_log);
+         } else {
+                 ADD_FMT_STRING_SYNC (sh_log, off, "foreground data",
+-- 
+2.1.0
+

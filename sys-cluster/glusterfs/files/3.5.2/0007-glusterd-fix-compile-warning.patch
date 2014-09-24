@@ -1,0 +1,42 @@
+From 6ad6661a2d49b444e18859391ba1bf8d71c28a39 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Tue, 9 Sep 2014 10:29:08 +0200
+Subject: [PATCH 07/19] glusterd: fix compile warning
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The following warning has been moved to an error and prevents the smoke tests
+in Jenkins to succeed.
+
+  cc1: warnings being treated as errors
+  /d/var_lib_jenkins_jobs/smoke/workspace/xlators/mgmt/glusterd/src/glusterd-utils.c: In function ‘glusterd_add_inode_size_to_dict’:
+  /d/var_lib_jenkins_jobs/smoke/workspace/xlators/mgmt/glusterd/src/glusterd-utils.c:5038: error: unused variable ‘inode_size’
+
+The warning was introduced with http://review.gluster.org/8491.
+
+Change-Id: I0c824aaf6df70dea35364af6fa72f34eea8c9829
+BUG: 1081016
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/8663
+Reviewed-by: Santosh Pradhan <spradhan@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+---
+ xlators/mgmt/glusterd/src/glusterd-utils.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/xlators/mgmt/glusterd/src/glusterd-utils.c b/xlators/mgmt/glusterd/src/glusterd-utils.c
+index 1ea5d23..fdf4a1c 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-utils.c
++++ b/xlators/mgmt/glusterd/src/glusterd-utils.c
+@@ -5035,7 +5035,6 @@ glusterd_add_inode_size_to_dict (dict_t *dict, int count)
+         int             ret               = -1;
+         char            key[1024]         = {0};
+         char            buffer[4096]      = {0};
+-        char           *inode_size        = NULL;
+         char           *device            = NULL;
+         char           *fs_name           = NULL;
+         char           *cur_word          = NULL;
+-- 
+2.1.0
+

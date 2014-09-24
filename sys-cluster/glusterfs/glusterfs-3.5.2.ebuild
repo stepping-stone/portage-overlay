@@ -1,6 +1,6 @@
 # Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Header: /var/cvsroot/gentoo-x86/sys-cluster/glusterfs/glusterfs-3.4.4-r2.ebuild,v 1.1 2014/06/25 15:48:20 dev-zero Exp $
+# $Header: /var/cvsroot/gentoo-x86/sys-cluster/glusterfs/glusterfs-3.5.1.ebuild,v 1.3 2014/08/11 22:28:30 blueness Exp $
 
 EAPI=5
 
@@ -15,20 +15,22 @@ SRC_URI="http://download.gluster.org/pub/gluster/${PN}/$(get_version_component_r
 
 LICENSE="|| ( GPL-2 LGPL-3+ )"
 SLOT="0"
-KEYWORDS="~amd64 ~x86"
-IUSE="bd-xlator debug emacs extras +fuse +georeplication infiniband static-libs systemtap vim-syntax"
+KEYWORDS="~amd64 ~ppc ~ppc64 ~x86"
+IUSE="bd-xlator crypt-xlator debug emacs +fuse +georeplication glupy infiniband qemu-block rsyslog static-libs +syslog systemtap vim-syntax +xml"
 
-REQUIRED_USE="georeplication? ( ${PYTHON_REQUIRED_USE} )"
+REQUIRED_USE="georeplication? ( ${PYTHON_REQUIRED_USE} )
+	glupy? ( ${PYTHON_REQUIRED_USE} )"
 
 RDEPEND="bd-xlator? ( sys-fs/lvm2 )
 	emacs? ( virtual/emacs )
 	fuse? ( >=sys-fs/fuse-2.7.0 )
 	georeplication? ( ${PYTHON_DEPS} )
 	infiniband? ( sys-infiniband/libibverbs sys-infiniband/librdmacm )
+	qemu-block? ( dev-libs/glib:2 )
 	systemtap? ( dev-util/systemtap )
+	xml? ( dev-libs/libxml2 )
 	sys-libs/readline
 	dev-libs/libaio
-	dev-libs/libxml2
 	dev-libs/openssl
 	|| ( sys-libs/glibc sys-libs/argp-standalone )"
 DEPEND="${RDEPEND}
@@ -40,9 +42,28 @@ SITEFILE="50${PN}-mode-gentoo.el"
 
 PATCHES=(
 	"${FILESDIR}/${PN}-3.4.0-silent_rules.patch"
-	"${FILESDIR}/${PN}-3.4.0-build-shared-only.patch"
-	"${FILESDIR}/${PN}-3.4.4-fuse-fix-memory-leak-in-fuse_getxattr.patch"
-	"${FILESDIR}/${PN}-3.4.4-cluster-dht-Don-t-do-extra-unref-in-dht-migration-ch.patch"
+	"${FILESDIR}/${PN}-3.5.1-Add-libraries-using-LIBADD-instead-of-LDFLAGS.patch"
+	"${FILESDIR}/${PN}-3.5.1-build-shared-only.patch"
+	"${FILESDIR}/${PV}/0001-dict-add-dict_set_dynstr_with_alloc.patch"
+	"${FILESDIR}/${PV}/0002-glusterd-call-runner_end-even-if-runner_start-fails.patch"
+	"${FILESDIR}/${PV}/0003-xlators-mgmt-don-t-allow-glusterd-fork-bomb-cache-th.patch"
+	"${FILESDIR}/${PV}/0004-cluster-afr-Fix-a-minor-typo.patch"
+	"${FILESDIR}/${PV}/0005-NFS-stripe-xlator-should-pass-EOF-at-end-of-READDIR.patch"
+	"${FILESDIR}/${PV}/0006-gNFS-Fix-memory-leak-in-setacl-code-path.patch"
+	"${FILESDIR}/${PV}/0007-glusterd-fix-compile-warning.patch"
+	"${FILESDIR}/${PV}/0008-dht-rebalance-Do-not-allow-rebalance-when-gfid-misma.patch"
+	"${FILESDIR}/${PV}/0009-DHT-readdirp-Directory-not-shown-healed-on-mount-poi.patch"
+	"${FILESDIR}/${PV}/0010-dht-fix-rename-race.patch"
+	"${FILESDIR}/${PV}/0011-DHT-Create-Failing-to-identify-a-linkto-file-in-look.patch"
+	"${FILESDIR}/${PV}/0012-storage-posix-removing-deleting-entries-in-case-of-c.patch"
+	"${FILESDIR}/${PV}/0013-cluster-dht-Fix-races-to-avoid-deletion-of-linkto-fi.patch"
+	"${FILESDIR}/${PV}/0014-dht-fix-rename-race.patch"
+	"${FILESDIR}/${PV}/0015-cluster-dht-Modified-logic-of-linkto-file-deletion-o.patch"
+	"${FILESDIR}/${PV}/0016-cluster-dht-Added-keys-in-dht_lookup_everywhere_done.patch"
+	"${FILESDIR}/${PV}/0017-features-marker-Fill-loc-path-before-sending-the-con.patch"
+	"${FILESDIR}/${PV}/0018-heal-Do-not-ignore-return-value-of-syncop_getxattr.patch"
+	"${FILESDIR}/${PV}/0019-cluster-dht-Fix-dict_t-leaks-in-rebalance-process-ex.patch"
+	"${FILESDIR}/${P}-glfs_fini-Clean-up-all-the-resources-allocated-in-gl.patch"
 )
 
 DOCS=( AUTHORS ChangeLog NEWS README THANKS )
@@ -53,7 +74,7 @@ DOCS=( AUTHORS ChangeLog NEWS README THANKS )
 #   glibc or if argp-standalone is installed.
 
 pkg_setup() {
-	 use georeplication && python-single-r1_pkg_setup
+	( use georeplication || use glupy ) && python-single-r1_pkg_setup
 }
 
 src_configure() {
@@ -62,12 +83,17 @@ src_configure() {
 		--disable-silent-rules
 		--disable-fusermount
 		$(use_enable debug)
-		$(use_enable bd-xlator )
+		$(use_enable bd-xlator)
+		$(use_enable crypt-xlator)
 		$(use_enable fuse fuse-client)
 		$(use_enable georeplication)
+		$(use_enable glupy)
 		$(use_enable infiniband ibverbs)
+		$(use_enable qemu-block)
 		$(use_enable static-libs static)
+		$(use_enable syslog)
 		$(use_enable systemtap)
+		$(use_enable xml xml-output)
 		--docdir=/usr/share/doc/${PF}
 		--localstatedir=/var
 	)
@@ -83,9 +109,18 @@ src_compile() {
 src_install() {
 	autotools-utils_src_install
 
-	rm "${D}/etc/glusterfs/glusterfs-logrotate" || die "removing false logrotate failed"
+	rm \
+		"${D}"/etc/glusterfs/glusterfs-{georep-,}logrotate \
+		"${D}"/etc/glusterfs/gluster-rsyslog-*.conf \
+		"${D}"/usr/share/doc/${PF}/glusterfs{-mode.el,.vim} || die "removing false files failed"
+
 	insinto /etc/logrotate.d
 	newins "${FILESDIR}"/glusterfs.logrotate glusterfs
+
+	if use rsyslog ; then
+		insinto /etc/rsyslog.d
+		newins extras/gluster-rsyslog-7.2.conf 60-gluster.conf
+	fi
 
 	if use emacs ; then
 		elisp-install ${PN} extras/glusterfs-mode.el*
@@ -97,12 +132,22 @@ src_install() {
 		insinto /usr/share/vim/vimfiles/syntax; doins extras/${PN}.vim
 	fi
 
-	if use extras ; then
-		sed -i -e "s|quota-remove-xattr.sh|${PN}-quota-remove-xattr|" extras/quota-metadata-cleanup.sh || die "sed failed"
-		for e in backend-xattr-sanitize backend-cleanup migrate-unify-to-distribute quota-metadata-cleanup quota-remove-xattr ; do
-			newbin extras/${e}.sh ${PN}-${e}
-		done
-		newbin extras/disk_usage_sync.sh ${PN}-disk-usage-sync
+	# insert some other tools which might be useful
+	insinto /usr/share/glusterfs/scripts
+	doins \
+		extras/backend-{cleanup,xattr-sanitize}.sh \
+		extras/clear_xattrs.sh \
+		extras/migrate-unify-to-distribute.sh
+
+	# correct permissions on installed scripts
+	# fperms 0755 /usr/share/glusterfs/scripts/*.sh
+	chmod 0755 "${ED}"/usr/share/glusterfs/scripts/*.sh || die
+
+	if use georeplication ; then
+		# move the gsync-sync-gfid tool to a binary path
+		# and set a symlink to be compliant with all other distros
+		mv "${ED}"/usr/{share/glusterfs/scripts/gsync-sync-gfid,libexec/glusterfs/} || die
+		dosym ../../../libexec/glusterfs/gsync-sync-gfid /usr/share/glusterfs/scripts/gsync-sync-gfid
 	fi
 
 	newinitd "${FILESDIR}/${PN}-r1.initd" glusterfsd
@@ -113,7 +158,7 @@ src_install() {
 	keepdir /var/lib/glusterd
 
 	# QA
-	rm -rf "${ED}/var/run/"
+	rm -rf "${ED}/var/run/" || die
 
 	use georeplication && python_fix_shebang "${ED}"
 }
@@ -122,24 +167,24 @@ pkg_postinst() {
 	elog "Starting with ${PN}-3.1.0, you can use the glusterd daemon to configure your"
 	elog "volumes dynamically. To do so, simply use the gluster CLI after running:"
 	elog "  /etc/init.d/glusterd start"
-	elog
+	echo
 	elog "For static configurations, the glusterfsd startup script can be multiplexed."
 	elog "The default startup script uses /etc/conf.d/glusterfsd to configure the"
 	elog "separate service.  To create additional instances of the glusterfsd service"
 	elog "simply create a symlink to the glusterfsd startup script."
-	elog
+	echo
 	elog "Example:"
 	elog "    # ln -s glusterfsd /etc/init.d/glusterfsd2"
 	elog "    # ${EDITOR} /etc/glusterfs/glusterfsd2.vol"
 	elog "You can now treat glusterfsd2 like any other service"
-	elog
+	echo
 	ewarn "You need to use a ntp client to keep the clocks synchronized across all"
 	ewarn "of your servers. Setup a NTP synchronizing service before attempting to"
 	ewarn "run GlusterFS."
 
 	elog
 	elog "If you are upgrading from a previous version of ${PN}, please read:"
-	elog "  https://vbellur.wordpress.com/2013/07/15/upgrading-to-glusterfs-3-4/"
+	elog "  http://www.gluster.org/community/documentation/index.php/Upgrade_to_3.5"
 
 	use emacs && elisp-site-regen
 }

@@ -1,0 +1,276 @@
+From e24e812d25f10c008b80d72bc8b1fb2c401bd892 Mon Sep 17 00:00:00 2001
+From: Venkatesh Somyajulu <vsomyaju@redhat.com>
+Date: Wed, 10 Sep 2014 22:52:43 +0530
+Subject: [PATCH 15/19] cluster/dht: Modified logic of linkto file deletion on
+ non-hashed
+
+Currently whenever dht_lookup_everywhere gets called, if in
+dht_lookup_everywhere_cbk, a linkto file is found on non-hashed
+subvolume, file is unlinked. But there are cases when this file
+is under migration. Under such condition, we should avoid deletion
+of file.
+
+When  some other rebalance process changes the layout of parent
+such that dst_file (w.r.t. migration) falls on non-hashed node,
+then may be lookup could have found it as linkto file but just
+before unlink, file  is under migration or already migrated
+In such cased unlink can be avoided.
+
+Race:
+-------
+If we have two bricks (brick-1 and brick-2) with initial file "a"
+under BaseDir which is hashed as well as cached on (brick-1).
+
+Assume "a"  hashing gives 44.
+
+                              Brick-1              Brick-2
+
+Initial Setup:               BaseDir/a             BaseDir
+                             [1-50]                [51-100]
+
+Now add new-brick Brick-3.
+
+1. Rebalance-1 on node Node-1 (Brick-1 node) will reset
+the BaseDir Layout.
+
+2. After that it will perform
+a)  Create linkto file on  new-hashed (brick-2)
+b)  Perform file migration.
+
+1.Rebalance-1 Fixes the base-layout:
+                 Brick-1             Brick-2           Brick-3
+                 ---------         ----------         ------------
+                 BaseDir/a            BaseDir           BaseDir
+                  [1-33]              [34-66]           [67-100]
+
+2. Only a) is     BaseDir/a          BaseDir/a(linkto)   BaseDir
+   performed                         Create linktofile
+
+Now rebalance 2 on node-2 jumped in and it will perform
+step 1 and 2-a.
+
+After (rebal-2, step-1), it changes the layout of the BaseDir.
+                    BaseDir/a     BaseDir/a(link)    BaseDir
+                    [67-100]           [1-33]        [34-66]
+
+For  (rebale-2, step-2), It will perform lookup at Brick-3 as w.r.t new
+layout 44 falls for brick-3. But lookup will fail.
+So  dht_lookup_everywhere gets called.
+
+NOTE: On brick-2 by rebalance-1, a linkto file was created.
+
+Currently that linkto files gets deleted by rebalance-2 lookup as it
+is considered as stale linkto file.  But  with patch if rebalance is
+already in progress or rebalance is over,  linkto file will not be
+unlinked. If rebalance is in progress fd will be  open and if rebalance
+is over then linkto file wont be set.
+
+Change-Id: I3fee0d28de3c76197325536a9e30099d2413f079
+BUG: 1129541
+Signed-off-by: Venkatesh Somyajulu <vsomyaju@redhat.com>
+Reviewed-on: http://review.gluster.org/8345
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Reviewed-by: Shyamsundar Ranganathan <srangana@redhat.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit 966997992bdbd5fffc632bf705678e287ed50bf7)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8719
+Reviewed-by: Jeff Darcy <jdarcy@redhat.com>
+---
+ libglusterfs/src/glusterfs.h         |  3 ++
+ xlators/cluster/dht/src/dht-common.c | 92 ++++++++++++++++++++++++++++--------
+ xlators/cluster/dht/src/dht-common.h |  2 +
+ xlators/storage/posix/src/posix.c    |  4 +-
+ 4 files changed, 78 insertions(+), 23 deletions(-)
+
+diff --git a/libglusterfs/src/glusterfs.h b/libglusterfs/src/glusterfs.h
+index 9aa3817..2e5d93f 100644
+--- a/libglusterfs/src/glusterfs.h
++++ b/libglusterfs/src/glusterfs.h
+@@ -183,6 +183,9 @@
+                                      == DHT_LINKFILE_MODE)
+ #define DHT_LINKFILE_STR "linkto"
+ 
++#define DHT_SKIP_NON_LINKTO_UNLINK "unlink-only-if-dht-linkto-file"
++#define DHT_SKIP_OPEN_FD_UNLINK "dont-unlink-for-open-fd"
++
+ /* NOTE: add members ONLY at the end (just before _MAXVALUE) */
+ typedef enum {
+         GF_FOP_NULL = 0,
+diff --git a/xlators/cluster/dht/src/dht-common.c b/xlators/cluster/dht/src/dht-common.c
+index ad635af..2bb3c51 100644
+--- a/xlators/cluster/dht/src/dht-common.c
++++ b/xlators/cluster/dht/src/dht-common.c
+@@ -789,7 +789,16 @@ dht_lookup_unlink_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                        struct iatt *preparent, struct iatt *postparent,
+                        dict_t *xdata)
+ {
+-        int  this_call_cnt = 0;
++        int             this_call_cnt = 0;
++        dht_local_t     *local = NULL;
++        const char      *path =  NULL;
++
++        local =  (dht_local_t*)frame->local;
++        path = local->loc.path;
++
++        gf_log (this->name, GF_LOG_INFO, "lookup_unlink returned with "
++                "op_ret -> %d and op-errno -> %d for %s", op_ret, op_errno,
++                ((path == NULL)? "null" : path ));
+ 
+         this_call_cnt = dht_frame_return (frame);
+         if (is_last_call (this_call_cnt)) {
+@@ -818,6 +827,28 @@ dht_lookup_unlink_stale_linkto_cbk (call_frame_t *frame, void *cookie,
+         return 0;
+ }
+ 
++int
++dht_fill_dict_to_avoid_unlink_of_migrating_file (dict_t *dict) {
++
++        int ret = 0;
++
++        ret = dict_set_int32 (dict, DHT_SKIP_NON_LINKTO_UNLINK, 1);
++
++        if (ret)
++                goto err;
++
++        ret =  dict_set_int32 (dict, DHT_SKIP_OPEN_FD_UNLINK, 1);
++
++        if (ret)
++                goto err;
++
++
++        return 0;
++
++err:
++        return -1;
++
++}
+ /* Rebalance is performed from cached_node to hashed_node. Initial cached_node
+  * contains a non-linkto file. After migration it is converted to linkto and
+  * then unlinked. And at hashed_subvolume, first a linkto file is present,
+@@ -893,7 +924,7 @@ dht_lookup_everywhere_done (call_frame_t *frame, xlator_t *this)
+ 
+                 if (local->skip_unlink.handle_valid_link && hashed_subvol) {
+ 
+-                        /*Purpose of "unlink-only-if-dht-linkto-file":
++                        /*Purpose of "DHT_SKIP_NON_LINKTO_UNLINK":
+                          * If this lookup is performed by rebalance and this
+                          * rebalance process detected hashed file and by
+                          * the time it sends the lookup request to cached node,
+@@ -907,21 +938,10 @@ dht_lookup_everywhere_done (call_frame_t *frame, xlator_t *this)
+                          * linkto file and not a migrated_file.
+                          */
+ 
+-                        ret = dict_set_int32 (local->xattr_req,
+-                                              "unlink-only-if-dht-linkto-file",
+-                                              1);
+ 
+-                        if (ret)
+-                                goto dict_err;
+-
+-                        /*Later other consumers can also use this key to avoid
+-                         * unlinking in case of open_fd
+-                         */
++                        ret = dht_fill_dict_to_avoid_unlink_of_migrating_file
++                              (local->xattr_req);
+ 
+-                        ret = dict_set_int32 (local->xattr_req,
+-                                              "dont-unlink-for-open-fd", 1);
+-
+-dict_err:
+                         if (ret) {
+                                 /* If for some reason, setting key in the dict
+                                  * fails, return with ENOENT, as with respect to
+@@ -1151,6 +1171,7 @@ dht_lookup_everywhere_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         int           ret           = -1;
+         int32_t       fd_count      = 0;
+         dht_conf_t   *conf          = NULL;
++        dict_t       *dict_req      = {0};
+ 
+         GF_VALIDATE_OR_GOTO ("dht", frame, out);
+         GF_VALIDATE_OR_GOTO ("dht", this, out);
+@@ -1260,12 +1281,41 @@ unlock:
+                                    buf->ia_gfid);
+ 
+                 } else if (!ret && (fd_count == 0)) {
+-                        gf_log (this->name, GF_LOG_INFO,
+-                                "deleting stale linkfile %s on %s",
+-                                loc->path, subvol->name);
+-                        STACK_WIND (frame, dht_lookup_unlink_cbk,
+-                                    subvol, subvol->fops->unlink, loc, 0, NULL);
+-                        return 0;
++
++                        dict_req = dict_new ();
++
++                        ret = dht_fill_dict_to_avoid_unlink_of_migrating_file
++                              (dict_req);
++
++                        if (ret) {
++
++                                /* Skip unlinking for dict_failure
++                                 *File is found as a linkto file on non-hashed,
++                                 *subvolume. In the current implementation,
++                                 *finding a linkto-file on non-hashed does not
++                                 *always implies that it is stale. So deletion
++                                 *of file should be done only when both fd is
++                                 *closed and linkto-xattr is set. In case of
++                                 *dict_set failure, avoid skipping of file.
++                                 *NOTE: dht_frame_return should get called for
++                                 *      this block.
++                                 */
++
++                                dict_unref (dict_req);
++
++                        } else {
++                                gf_log (this->name, GF_LOG_INFO,
++                                        "attempting deletion of stale linkfile "
++                                        "%s on %s", loc->path, subvol->name);
++
++                                STACK_WIND (frame, dht_lookup_unlink_cbk,
++                                            subvol, subvol->fops->unlink, loc,
++                                            0, dict_req);
++
++                                dict_unref (dict_req);
++
++                                return 0;
++                        }
+                 }
+         }
+ 
+diff --git a/xlators/cluster/dht/src/dht-common.h b/xlators/cluster/dht/src/dht-common.h
+index bc7ee19..b61600d 100644
+--- a/xlators/cluster/dht/src/dht-common.h
++++ b/xlators/cluster/dht/src/dht-common.h
+@@ -804,4 +804,6 @@ dht_subvol_status (dht_conf_t *conf, xlator_t *subvol);
+ int
+ dht_lookup_everywhere_done (call_frame_t *frame, xlator_t *this);
+ 
++int
++dht_fill_dict_to_avoid_unlink_of_migrating_file (dict_t *dict);
+ #endif/* _DHT_H */
+diff --git a/xlators/storage/posix/src/posix.c b/xlators/storage/posix/src/posix.c
+index cedf71e..549a226 100644
+--- a/xlators/storage/posix/src/posix.c
++++ b/xlators/storage/posix/src/posix.c
+@@ -1407,7 +1407,7 @@ posix_unlink (call_frame_t *frame, xlator_t *this,
+ 
+         priv = this->private;
+ 
+-        op_ret = dict_get_int32 (xdata, "dont-unlink-for-open-fd",
++        op_ret = dict_get_int32 (xdata, DHT_SKIP_OPEN_FD_UNLINK,
+                                  &check_open_fd);
+ 
+         if (!op_ret && check_open_fd) {
+@@ -1428,7 +1428,7 @@ posix_unlink (call_frame_t *frame, xlator_t *this,
+         }
+ 
+ 
+-        op_ret = dict_get_int32 (xdata, "unlink-only-if-dht-linkto-file",
++        op_ret = dict_get_int32 (xdata, DHT_SKIP_NON_LINKTO_UNLINK,
+                                  &unlink_if_linkto);
+ 
+         if (!op_ret && unlink_if_linkto) {
+-- 
+2.1.0
+

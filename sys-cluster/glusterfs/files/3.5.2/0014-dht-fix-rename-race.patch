@@ -1,0 +1,53 @@
+From 21342c76f123df72d6e78fdca437e92e5d6a6841 Mon Sep 17 00:00:00 2001
+From: Nithya Balachandran <nbalacha@redhat.com>
+Date: Wed, 10 Sep 2014 22:45:56 +0530
+Subject: [PATCH 14/19] dht: fix rename race
+
+Additional check to check if we created the linkto
+file before deleting it in the rename cleanup function
+
+Change-Id: I919cd7cb24f948ba4917eb9cf50d5169bb730a67
+BUG: 1129527
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8338
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit df770496ba5ed6d2c72bcfc76ca9e816a08c383a)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8718
+Reviewed-by: Jeff Darcy <jdarcy@redhat.com>
+---
+ xlators/cluster/dht/src/dht-rename.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-rename.c b/xlators/cluster/dht/src/dht-rename.c
+index d092139..e779cf7 100644
+--- a/xlators/cluster/dht/src/dht-rename.c
++++ b/xlators/cluster/dht/src/dht-rename.c
+@@ -418,8 +418,10 @@ dht_rename_cleanup (call_frame_t *frame)
+         if (src_cached == dst_cached)
+                 goto nolinks;
+ 
+-        if (dst_hashed != src_hashed && dst_hashed != src_cached)
++        if (local->linked && (dst_hashed != src_hashed )&&
++                (dst_hashed != src_cached)) {
+                 call_cnt++;
++        }
+ 
+         if (local->added_link && (src_cached != dst_hashed)) {
+                 call_cnt++;
+@@ -432,7 +434,9 @@ dht_rename_cleanup (call_frame_t *frame)
+ 
+         DHT_MARK_FOP_INTERNAL (xattr);
+ 
+-        if (dst_hashed != src_hashed && dst_hashed != src_cached) {
++
++        if (local->linked && (dst_hashed != src_hashed) &&
++                        (dst_hashed != src_cached)) {
+                 dict_t *xattr_new = NULL;
+ 
+                 gf_log (this->name, GF_LOG_TRACE,
+-- 
+2.1.0
+

@@ -1,0 +1,223 @@
+From da1657d6841e6bd74074f5a60ed29cf3a97fbff4 Mon Sep 17 00:00:00 2001
+From: Varun Shastry <vshastry@redhat.com>
+Date: Wed, 9 Jul 2014 15:16:00 +0530
+Subject: [PATCH 17/19] features/marker: Fill loc->path before sending the
+ control to healing
+
+        Backport of: http://review.gluster.org/8296
+
+Problem:
+The xattr healing part of the marker requires path to be present in the loc.
+Currently path is not filled while triggering from the readdirp_cbk.
+
+Solution:
+Current patch tries to fill the loc with path.
+
+Change-Id: Icc16c740bc6453714306eae19526e18c1775c1d8
+BUG: 1144315
+Signed-off-by: Varun Shastry <vshastry@redhat.com>
+Signed-off-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-on: http://review.gluster.org/8778
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+---
+ xlators/features/marker/src/marker-quota.c | 14 +++++++-
+ xlators/features/marker/src/marker.c       | 52 +++++++++++++++++-------------
+ 2 files changed, 42 insertions(+), 24 deletions(-)
+
+diff --git a/xlators/features/marker/src/marker-quota.c b/xlators/features/marker/src/marker-quota.c
+index a758e93..3156cd8 100644
+--- a/xlators/features/marker/src/marker-quota.c
++++ b/xlators/features/marker/src/marker-quota.c
+@@ -173,6 +173,12 @@ mq_loc_fill_from_name (xlator_t *this, loc_t *newloc, loc_t *oldloc,
+         newloc->parent = inode_ref (oldloc->inode);
+         uuid_copy (newloc->pargfid, oldloc->inode->gfid);
+ 
++        if (!oldloc->path) {
++                ret = loc_path (oldloc, NULL);
++                if (ret == -1)
++                        goto out;
++        }
++
+         len = strlen (oldloc->path);
+ 
+         if (oldloc->path [len - 1] == '/')
+@@ -606,8 +612,14 @@ mq_readdir_cbk (call_frame_t *frame,
+ 
+                 ret = mq_loc_fill_from_name (this, &loc, &local->loc,
+                                              entry->d_ino, entry->d_name);
+-                if (ret < 0)
++                if (ret < 0) {
++                        gf_log (this->name, GF_LOG_WARNING, "Couldn't build "
++                                "loc for %s/%s, returning from updation of "
++                                "quota attributes",
++                                uuid_utoa (local->loc.inode->gfid),
++                                entry->d_name);
+                         goto out;
++                }
+ 
+                 ret = 0;
+ 
+diff --git a/xlators/features/marker/src/marker.c b/xlators/features/marker/src/marker.c
+index 4505865..ed0f9e8 100644
+--- a/xlators/features/marker/src/marker.c
++++ b/xlators/features/marker/src/marker.c
+@@ -86,7 +86,7 @@ loc_wipe:
+ }
+ 
+ int
+-marker_inode_loc_fill (inode_t *inode, loc_t *loc)
++marker_inode_loc_fill (inode_t *inode, char *name, loc_t *loc)
+ {
+         char            *resolvedpath = NULL;
+         int              ret          = -1;
+@@ -97,7 +97,7 @@ marker_inode_loc_fill (inode_t *inode, loc_t *loc)
+ 
+ 	parent = inode_parent (inode, NULL, NULL);
+ 
+-        ret = inode_path (inode, NULL, &resolvedpath);
++        ret = inode_path (inode, name, &resolvedpath);
+         if (ret < 0)
+                 goto err;
+ 
+@@ -129,7 +129,7 @@ marker_trav_parent (marker_local_t *local)
+         } else
+                 parent = local->loc.parent;
+ 
+-        ret = marker_inode_loc_fill (parent, &loc);
++        ret = marker_inode_loc_fill (parent, NULL, &loc);
+ 
+         if (ret < 0) {
+                 ret = -1;
+@@ -764,7 +764,7 @@ marker_writev (call_frame_t *frame,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -1699,7 +1699,7 @@ marker_ftruncate (call_frame_t *frame, xlator_t *this, fd_t *fd, off_t offset,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -1916,7 +1916,7 @@ marker_fallocate(call_frame_t *frame, xlator_t *this, fd_t *fd, int32_t mode,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -1985,7 +1985,7 @@ marker_discard(call_frame_t *frame, xlator_t *this, fd_t *fd, off_t offset,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -2052,7 +2052,7 @@ marker_zerofill(call_frame_t *frame, xlator_t *this, fd_t *fd, off_t offset,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -2381,7 +2381,7 @@ marker_fsetxattr (call_frame_t *frame, xlator_t *this, fd_t *fd, dict_t *dict,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -2447,7 +2447,7 @@ marker_fsetattr (call_frame_t *frame, xlator_t *this, fd_t *fd,
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+-        ret = marker_inode_loc_fill (fd->inode, &local->loc);
++        ret = marker_inode_loc_fill (fd->inode, NULL, &local->loc);
+ 
+         if (ret == -1)
+                 goto err;
+@@ -2679,6 +2679,7 @@ marker_build_ancestry_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         gf_dirent_t *entry = NULL;
+         loc_t        loc    = {0, };
+         inode_t     *parent = NULL;
++        int          ret    = -1;
+ 
+         if ((op_ret <= 0) || (entries == NULL)) {
+                 goto out;
+@@ -2687,20 +2688,20 @@ marker_build_ancestry_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ 
+         list_for_each_entry (entry, &entries->list, list) {
+                 if (entry->inode == entry->inode->table->root) {
+-                        loc.path = gf_strdup ("/");
+                         inode_unref (parent);
+                         parent = NULL;
+                 }
+ 
+-                loc.inode = inode_ref (entry->inode);
+-
+-                if (parent != NULL) {
+-                        loc.parent = inode_ref (parent);
+-                        uuid_copy (loc.pargfid, parent->gfid);
++                ret = marker_inode_loc_fill (entry->inode,
++                                             entry->d_name, &loc);
++                if (ret) {
++                        gf_log (this->name, GF_LOG_WARNING, "Couldn't build "
++                                "loc for %s/%s",
++                                parent? uuid_utoa (parent->gfid): NULL,
++                                entry->d_name);
++                        continue;
+                 }
+ 
+-                uuid_copy (loc.gfid, entry->d_stat.ia_gfid);
+-
+                 mq_xattr_state (this, &loc, entry->dict, entry->d_stat);
+ 
+                 inode_unref (parent);
+@@ -2725,6 +2726,7 @@ marker_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         marker_conf_t  *priv  = NULL;
+         marker_local_t *local = NULL;
+         loc_t           loc   = {0, };
++        int             ret   = -1;
+ 
+         if (op_ret <= 0)
+                 goto unwind;
+@@ -2741,11 +2743,15 @@ marker_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                     (strcmp (entry->d_name, "..") == 0))
+                         continue;
+ 
+-                loc.inode = inode_ref (entry->inode);
+-                loc.parent = inode_ref (local->loc.inode);
+-
+-                uuid_copy (loc.gfid, entry->d_stat.ia_gfid);
+-                uuid_copy (loc.pargfid, loc.parent->gfid);
++                ret = marker_inode_loc_fill (entry->inode,
++                                             entry->d_name, &loc);
++                if (ret) {
++                        gf_log (this->name, GF_LOG_WARNING, "Couln't build "
++                                "loc for %s/%s",
++                                uuid_utoa (local->loc.inode->gfid),
++                                entry->d_name);
++                        continue;
++                }
+ 
+                 mq_xattr_state (this, &loc, entry->dict, entry->d_stat);
+ 
+-- 
+2.1.0
+

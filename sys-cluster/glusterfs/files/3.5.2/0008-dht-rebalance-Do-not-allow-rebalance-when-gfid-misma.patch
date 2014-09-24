@@ -1,0 +1,94 @@
+From b459b74b7191783a1392070bc3cd02ffad154868 Mon Sep 17 00:00:00 2001
+From: Venkatesh Somyajulu <vsomyaju@redhat.com>
+Date: Wed, 10 Sep 2014 20:57:08 +0530
+Subject: [PATCH 08/19] dht/rebalance: Do not allow rebalance when gfid
+ mismatch found
+
+Due to race condition, it may so happen that, gfid obtained
+in readdirp and gfid found by lookup are different for a given
+name. in that case do no allow the rebalance.
+
+Readdirp of an entry will bring the gfid, which will be stored
+in the inode through inode_link, and when lookup is done and
+gfid brought by lookup is different from the one stored in the
+inode, client3_3_lookup_cbk will return ESATLE and error will be
+captured by rebalance process.
+
+Cherry picked from commit 72c7afcd:
+> Change-Id: Iad839177ef9b80c1dd0e87f3406bcf4cb018e6fa
+> BUG: 1104653
+> Signed-off-by: Venkatesh Somyajulu <vsomyaju@redhat.com>
+> Reviewed-on: http://review.gluster.org/7973
+> Reviewed-by: Shyamsundar Ranganathan <srangana@redhat.com>
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Krutika Dhananjay <kdhananj@redhat.com>
+> Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+
+Also merged the oneline change from commit de22a20a:
+> Change-Id: I979b7333efa93b1e8f4c73ccf048d48e308f9289
+> BUG: 1104653
+> Signed-off-by: Venkatesh Somyajulu <vsomyaju@redhat.com>
+> Reviewed-on: http://review.gluster.org/8073
+> Reviewed-by: Krutika Dhananjay <kdhananj@redhat.com>
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+> Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+
+Change-Id: Iad839177ef9b80c1dd0e87f3406bcf4cb018e6fa
+BUG: 1138922
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/8712
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/dht/src/dht-rebalance.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/xlators/cluster/dht/src/dht-rebalance.c b/xlators/cluster/dht/src/dht-rebalance.c
+index 9446dbe..f8eeb1f 100644
+--- a/xlators/cluster/dht/src/dht-rebalance.c
++++ b/xlators/cluster/dht/src/dht-rebalance.c
+@@ -1395,6 +1395,7 @@ gf_defrag_fix_layout (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+         off_t                    offset         = 0;
+         struct iatt              iatt           = {0,};
+         int                      readdirp_errno = 0;
++        inode_t                 *linked_inode   = NULL, *inode = NULL;
+ 
+         ret = syncop_lookup (this, loc, NULL, &iatt, NULL, NULL);
+         if (ret) {
+@@ -1462,6 +1463,7 @@ gf_defrag_fix_layout (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+                                 continue;
+ 
+                         loc_wipe (&entry_loc);
++
+                         ret =dht_build_child_loc (this, &entry_loc, loc,
+                                                   entry->d_name);
+                         if (ret) {
+@@ -1477,9 +1479,23 @@ gf_defrag_fix_layout (xlator_t *this, gf_defrag_info_t *defrag, loc_t *loc,
+                                 continue;
+                         }
+ 
+-                        entry_loc.inode->ia_type = entry->d_stat.ia_type;
+ 
+                         uuid_copy (entry_loc.gfid, entry->d_stat.ia_gfid);
++
++                        /*In case the gfid stored in the inode by inode_link
++                         * and the gfid obtained in the lookup differs, then
++                         * client3_3_lookup_cbk will return ESTALE and proper
++                         * error will be captured
++                         */
++
++                        linked_inode = inode_link (entry_loc.inode, loc->inode,
++                                                   entry->d_name,
++                                                   &entry->d_stat);
++
++                        inode = entry_loc.inode;
++                        entry_loc.inode = linked_inode;
++                        inode_unref (inode);
++
+                         if (uuid_is_null (loc->gfid)) {
+                                 gf_log (this->name, GF_LOG_ERROR, "%s/%s"
+                                         " gfid not present", loc->path,
+-- 
+2.1.0
+

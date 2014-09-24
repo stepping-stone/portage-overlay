@@ -1,0 +1,1104 @@
+From 820ca37e5defc9e774a190bf1e11ee8c7401c532 Mon Sep 17 00:00:00 2001
+From: Poornima G <pgurusid@redhat.com>
+Date: Fri, 6 Jun 2014 12:26:43 +0530
+Subject: [PATCH] glfs_fini: Clean up all the resources allocated in glfs_new.
+
+Initially even after calling glfs_fini(), all the threads created
+during init and many other resources like memory pool, iobuf pool,
+event pool and other memory allocs were not being freed.
+With this patch these resources are freed in glfs_fini().
+
+Change-Id: I96b9277541737aa8372b4e6c9eed380cb871e7c2
+BUG: 1093594
+Signed-off-by: Poornima G <pgurusid@redhat.com>
+---
+ api/src/glfs.c                 | 159 ++++++++++++++++++++-
+ libglusterfs/src/event-epoll.c |  28 +++-
+ libglusterfs/src/event-poll.c  |  27 +++-
+ libglusterfs/src/event.c       |  12 ++
+ libglusterfs/src/event.h       |   5 +
+ libglusterfs/src/glusterfs.h   |   1 +
+ libglusterfs/src/graph.c       |  30 +++-
+ libglusterfs/src/inode.c       |  19 +++
+ libglusterfs/src/inode.h       |   3 +
+ libglusterfs/src/iobuf.c       |  14 +-
+ libglusterfs/src/syncop.c      |  54 ++++++-
+ libglusterfs/src/syncop.h      |   2 +
+ libglusterfs/src/timer.c       |  29 +++-
+ libglusterfs/src/timer.h       |   2 +
+ libglusterfs/src/xlator.c      |  35 ++++-
+ libglusterfs/src/xlator.h      |   3 +-
+ tests/bugs/bug-1093594.c       | 313 +++++++++++++++++++++++++++++++++++++++++
+ tests/bugs/bug-1093594.t       |  23 +++
+ 18 files changed, 742 insertions(+), 17 deletions(-)
+ create mode 100644 tests/bugs/bug-1093594.c
+ create mode 100644 tests/bugs/bug-1093594.t
+
+diff --git a/api/src/glfs.c b/api/src/glfs.c
+index bcabb29..65abd52 100644
+--- a/api/src/glfs.c
++++ b/api/src/glfs.c
+@@ -717,6 +717,123 @@ glfs_init (struct glfs *fs)
+ 	return ret;
+ }
+ 
++static int
++glusterfs_ctx_destroy (glusterfs_ctx_t *ctx)
++{
++        call_pool_t       *pool            = NULL;
++        int               ret              = 0;
++        glusterfs_graph_t *trav_graph      = NULL;
++        glusterfs_graph_t *tmp             = NULL;
++        xlator_t          *trav_xl         = NULL;
++
++        if (ctx == NULL)
++                return 0;
++
++        /* call fini() of each xlator */
++        if (ctx->active) {
++                trav_xl = ctx->active->top;
++                xlator_tree_fini(trav_xl);
++        }
++
++        /* For all the graphs, crawl through the xlator_t structs and free
++         * all its members except for the mem_acct.rec member,
++         * as GF_FREE will be referencing it.
++         */
++        list_for_each_entry_safe (trav_graph, tmp, &ctx->graphs, list) {
++                xlator_tree_free_members (trav_graph->first);
++        }
++
++        /* Free the memory pool */
++        if (ctx->stub_mem_pool)
++                mem_pool_destroy (ctx->stub_mem_pool);
++        if (ctx->dict_pool)
++                mem_pool_destroy (ctx->dict_pool);
++        if (ctx->dict_data_pool)
++                mem_pool_destroy (ctx->dict_data_pool);
++        if (ctx->dict_pair_pool)
++                mem_pool_destroy (ctx->dict_pair_pool);
++        if (ctx->logbuf_pool)
++                mem_pool_destroy (ctx->logbuf_pool);
++
++        pool = ctx->pool;
++        if (pool) {
++                if (pool->frame_mem_pool)
++                        mem_pool_destroy (pool->frame_mem_pool);
++                if (pool->stack_mem_pool)
++                        mem_pool_destroy (pool->stack_mem_pool);
++                LOCK_DESTROY (&pool->lock);
++                GF_FREE (pool);
++        }
++
++        /* Free the event pool */
++        ret = event_pool_destroy (ctx->event_pool);
++
++        /* Free the iobuf pool */
++        iobuf_pool_destroy (ctx->iobuf_pool);
++
++        GF_FREE (ctx->process_uuid);
++        GF_FREE (ctx->cmd_args.volfile_id);
++
++        pthread_mutex_destroy (&(ctx->lock));
++
++        return ret;
++}
++
++static int
++poller_destroy_handler (int fd, int idx, void *data,
++                       int poll_out, int poll_in, int poll_err)
++{
++        struct event_pool *event_pool = data;
++
++        if (event_pool == NULL)
++                return -1;
++
++        pthread_mutex_lock (&event_pool->mutex);
++        {
++                event_pool->destroy = 1;
++        }
++        pthread_mutex_unlock (&event_pool->mutex);
++
++        return 0;
++}
++
++/* This function causes the poll/epoll() thread to terminate. */
++static int
++poller_thread_destroy (pthread_t thr_id, struct event_pool *event_pool)
++{
++        int  ret     = -1;
++        int  fd[2]   = {-1};
++
++        if (event_pool == NULL)
++                goto out;
++
++        ret = pipe (fd);
++        if (ret < 0)
++                goto out;
++
++        /* From the main thread register an event on the pipe fd[0],
++         * In the handler set the destroy bit so that the poll/epoll()
++         * thread terminates.
++         */
++        ret = event_register (event_pool, fd[0], poller_destroy_handler,
++                              event_pool, 1, 0);
++        if (ret < 0)
++                goto out;
++
++        write (fd[1], "dummy", 6);
++
++        pthread_join (thr_id, NULL);
++
++        ret = event_unregister (event_pool, fd[0], -1);
++
++ out:
++        if (fd[0] != -1)
++                close (fd[0]);
++        if (fd[1] != -1)
++                close (fd[1]);
++
++        return ret;
++}
+ 
+ int
+ glfs_fini (struct glfs *fs)
+@@ -727,6 +844,7 @@ glfs_fini (struct glfs *fs)
+         glusterfs_ctx_t *ctx = NULL;
+         call_pool_t     *call_pool = NULL;
+         int             fs_init = 0;
++        glusterfs_graph_t *trav_graph = NULL, *tmp = NULL;
+ 
+         ctx = fs->ctx;
+ 
+@@ -775,9 +893,48 @@ glfs_fini (struct glfs *fs)
+                 glfs_subvol_done (fs, subvol);
+         }
+ 
+-        if (gf_log_fini(ctx) != 0)
++        ctx->cleanup_started = 1;
++
++        /* Join the syncenv_processor threads and cleanup syncenv resources*/
++        if (fs_init != 0) {
++                syncenv_destroy (ctx->env);
++        }
++
++        /* Join the poller thread */
++        if (fs_init != 0) {
++                if (poller_thread_destroy (fs->poller, ctx->event_pool) != 0)
++                        ret = -1;
++        }
++
++        if (gf_log_fini (ctx) != 0)
++                ret = -1;
++
++        /* Join the timer thread */
++        if (fs_init != 0) {
++                gf_timer_registry_destroy (ctx);
++        }
++
++        if (glusterfs_ctx_destroy (fs->ctx) != 0)
+                 ret = -1;
+ 
++        pthread_mutex_destroy (&fs->mutex);
++        pthread_cond_destroy (&fs->cond);
++
++        GF_FREE (fs->volname);
++        GF_FREE (fs);
++
++        /* Free all the graph structs and its containing xlator_t structs */
++        if (fs_init != 0) {
++                list_for_each_entry_safe (trav_graph, tmp, &ctx->graphs, list) {
++                        glusterfs_graph_destroy_residual (trav_graph);
++                }
++        }
++
++        /* Call FREE(ctx) after all calls to GF_FREE are made,
++         * as GF_FREE references ctx->mem_acct_enable.
++         */
++        FREE (ctx);
++
+         return ret;
+ }
+ 
+diff --git a/libglusterfs/src/event-epoll.c b/libglusterfs/src/event-epoll.c
+index 06b3236..d392d9a 100644
+--- a/libglusterfs/src/event-epoll.c
++++ b/libglusterfs/src/event-epoll.c
+@@ -115,6 +115,9 @@ event_register_epoll (struct event_pool *event_pool, int fd,
+ 
+         GF_VALIDATE_OR_GOTO ("event", event_pool, out);
+ 
++        if (event_pool->destroy == 1)
++                goto out;
++
+         pthread_mutex_lock (&event_pool->mutex);
+         {
+                 if (event_pool->count == event_pool->used) {
+@@ -402,6 +405,12 @@ event_dispatch_epoll (struct event_pool *event_pool)
+         while (1) {
+                 pthread_mutex_lock (&event_pool->mutex);
+                 {
++                        if (event_pool->destroy == 1) {
++                                ret = 0;
++                                pthread_mutex_unlock (&event_pool->mutex);
++                                goto out;
++                        }
++
+                         while (event_pool->used == 0)
+                                 pthread_cond_wait (&event_pool->cond,
+                                                    &event_pool->mutex);
+@@ -451,13 +460,30 @@ out:
+         return ret;
+ }
+ 
++static int
++event_pool_destroy_epoll (struct event_pool *event_pool)
++{
++        int ret = 0;
++
++        ret = close (event_pool->fd);
++
++        pthread_mutex_destroy (&event_pool->mutex);
++        pthread_cond_destroy (&event_pool->cond);
++
++        GF_FREE (event_pool->evcache);
++        GF_FREE (event_pool->reg);
++        GF_FREE (event_pool);
++
++        return ret;
++}
+ 
+ struct event_ops event_ops_epoll = {
+         .new              = event_pool_new_epoll,
+         .event_register   = event_register_epoll,
+         .event_select_on  = event_select_on_epoll,
+         .event_unregister = event_unregister_epoll,
+-        .event_dispatch   = event_dispatch_epoll
++        .event_dispatch   = event_dispatch_epoll,
++        .event_pool_destroy = event_pool_destroy_epoll
+ };
+ 
+ #endif
+diff --git a/libglusterfs/src/event-poll.c b/libglusterfs/src/event-poll.c
+index 7f7f560..686b320 100644
+--- a/libglusterfs/src/event-poll.c
++++ b/libglusterfs/src/event-poll.c
+@@ -416,6 +416,10 @@ event_dispatch_poll (struct event_pool *event_pool)
+         GF_VALIDATE_OR_GOTO ("event", event_pool, out);
+ 
+         while (1) {
++                if (event_pool->destroy == 1) {
++                        return 0;
++                }
++
+                 size = event_dispatch_poll_resize (event_pool, ufds, size);
+                 ufds = event_pool->evcache;
+ 
+@@ -441,11 +445,32 @@ out:
+         return -1;
+ }
+ 
++static int
++event_pool_destroy_poll (struct event_pool *event_pool)
++{
++        int ret = 0;
++
++        ret = close (event_pool->breaker[0]);
++        if (ret)
++                return ret;
++
++        ret = close (event_pool->breaker[1]);
++        if (ret)
++                return ret;
++
++        event_pool->breaker[0] = event_pool->breaker[1] = -1;
++
++        GF_FREE (event_pool->reg);
++        GF_FREE (event_pool);
++
++        return ret;
++}
+ 
+ struct event_ops event_ops_poll = {
+         .new              = event_pool_new_poll,
+         .event_register   = event_register_poll,
+         .event_select_on  = event_select_on_poll,
+         .event_unregister = event_unregister_poll,
+-        .event_dispatch   = event_dispatch_poll
++        .event_dispatch   = event_dispatch_poll,
++        .event_pool_destroy = event_pool_destroy_poll
+ };
+diff --git a/libglusterfs/src/event.c b/libglusterfs/src/event.c
+index 0197e79..9e8b969 100644
+--- a/libglusterfs/src/event.c
++++ b/libglusterfs/src/event.c
+@@ -115,3 +115,15 @@ event_dispatch (struct event_pool *event_pool)
+ out:
+         return ret;
+ }
++
++int
++event_pool_destroy (struct event_pool *event_pool)
++{
++        int ret = -1;
++
++        GF_VALIDATE_OR_GOTO ("event", event_pool, out);
++
++        ret = event_pool->ops->event_pool_destroy (event_pool);
++out:
++        return ret;
++}
+diff --git a/libglusterfs/src/event.h b/libglusterfs/src/event.h
+index 7ed1824..1f4b13d 100644
+--- a/libglusterfs/src/event.h
++++ b/libglusterfs/src/event.h
+@@ -51,6 +51,8 @@ struct event_pool {
+ 
+ 	void *evcache;
+ 	int evcache_size;
++
++        int destroy;
+ };
+ 
+ struct event_ops {
+@@ -66,6 +68,8 @@ struct event_ops {
+         int (*event_unregister) (struct event_pool *event_pool, int fd, int idx);
+ 
+         int (*event_dispatch) (struct event_pool *event_pool);
++
++        int (*event_pool_destroy) (struct event_pool *event_pool);
+ };
+ 
+ struct event_pool * event_pool_new (int count);
+@@ -76,5 +80,6 @@ int event_register (struct event_pool *event_pool, int fd,
+ 		    void *data, int poll_in, int poll_out);
+ int event_unregister (struct event_pool *event_pool, int fd, int idx);
+ int event_dispatch (struct event_pool *event_pool);
++int event_pool_destroy (struct event_pool *event_pool);
+ 
+ #endif /* _EVENT_H_ */
+diff --git a/libglusterfs/src/glusterfs.h b/libglusterfs/src/glusterfs.h
+index aad2315..93344b6 100644
+--- a/libglusterfs/src/glusterfs.h
++++ b/libglusterfs/src/glusterfs.h
+@@ -528,6 +528,7 @@ struct gf_flock {
+ #define GF_UNUSED __attribute__((unused))
+ 
+ int glusterfs_graph_prepare (glusterfs_graph_t *graph, glusterfs_ctx_t *ctx);
++int glusterfs_graph_destroy_residual (glusterfs_graph_t *graph);
+ int glusterfs_graph_destroy (glusterfs_graph_t *graph);
+ int glusterfs_graph_activate (glusterfs_graph_t *graph, glusterfs_ctx_t *ctx);
+ glusterfs_graph_t *glusterfs_graph_construct (FILE *fp);
+diff --git a/libglusterfs/src/graph.c b/libglusterfs/src/graph.c
+index 52e79ab..53087b0 100644
+--- a/libglusterfs/src/graph.c
++++ b/libglusterfs/src/graph.c
+@@ -763,14 +763,32 @@ glusterfs_graph_reconfigure (glusterfs_graph_t *oldgraph,
+ }
+ 
+ int
++glusterfs_graph_destroy_residual (glusterfs_graph_t *graph)
++{
++        int ret = 0;
++
++        if (graph == NULL)
++                return ret;
++
++        ret = xlator_tree_free_memacct (graph->first);
++
++        list_del_init (&graph->list);
++        GF_FREE (graph);
++
++        return ret;
++}
++
++int
+ glusterfs_graph_destroy (glusterfs_graph_t *graph)
+ {
+-        xlator_tree_free (graph->first);
++        int ret = 0;
+ 
+-        if (graph) {
+-                list_del_init (&graph->list);
+-                GF_FREE (graph);
+-        }
++        if (graph == NULL)
++                return ret;
+ 
+-        return 0;
++        ret = xlator_tree_free_members (graph->first);
++
++        ret = glusterfs_graph_destroy_residual (graph);
++
++        return ret;
+ }
+diff --git a/libglusterfs/src/inode.c b/libglusterfs/src/inode.c
+index d4eade8..6242053 100644
+--- a/libglusterfs/src/inode.c
++++ b/libglusterfs/src/inode.c
+@@ -1395,6 +1395,25 @@ out:
+         return new;
+ }
+ 
++void
++inode_table_destroy (inode_table_t *inode_table) {
++
++        if(inode_table == NULL)
++                return;
++
++        GF_FREE (inode_table->inode_hash);
++        GF_FREE (inode_table->name_hash);
++        if (inode_table->dentry_pool)
++                mem_pool_destroy (inode_table->dentry_pool);
++        if (inode_table->inode_pool)
++                mem_pool_destroy (inode_table->inode_pool);
++        if (inode_table->fd_mem_pool)
++                mem_pool_destroy (inode_table->fd_mem_pool);
++        GF_FREE (inode_table);
++        inode_table = NULL;
++
++        return;
++}
+ 
+ inode_t *
+ inode_from_path (inode_table_t *itable, const char *path)
+diff --git a/libglusterfs/src/inode.h b/libglusterfs/src/inode.h
+index 60adba6..f7ea9fa 100644
+--- a/libglusterfs/src/inode.h
++++ b/libglusterfs/src/inode.h
+@@ -109,6 +109,9 @@ struct _inode {
+ inode_table_t *
+ inode_table_new (size_t lru_limit, xlator_t *xl);
+ 
++void
++inode_table_destroy (inode_table_t *inode_table);
++
+ inode_t *
+ inode_new (inode_table_t *table);
+ 
+diff --git a/libglusterfs/src/iobuf.c b/libglusterfs/src/iobuf.c
+index 82ffe2d..56051e2 100644
+--- a/libglusterfs/src/iobuf.c
++++ b/libglusterfs/src/iobuf.c
+@@ -301,8 +301,20 @@ iobuf_pool_destroy (struct iobuf_pool *iobuf_pool)
+                         iobuf_pool->arena_cnt--;
+                         __iobuf_arena_destroy (iobuf_arena);
+                 }
+-
++                list_for_each_entry_safe (iobuf_arena, tmp,
++                                          &iobuf_pool->purge[i], list) {
++                        list_del_init (&iobuf_arena->list);
++                        iobuf_pool->arena_cnt--;
++                        __iobuf_arena_destroy (iobuf_arena);
++                }
++                list_for_each_entry_safe (iobuf_arena, tmp,
++                                          &iobuf_pool->filled[i], list) {
++                        list_del_init (&iobuf_arena->list);
++                        iobuf_pool->arena_cnt--;
++                        __iobuf_arena_destroy (iobuf_arena);
++                }
+         }
++        GF_FREE(iobuf_pool);
+ 
+ out:
+         return;
+diff --git a/libglusterfs/src/syncop.c b/libglusterfs/src/syncop.c
+index 3dd622c..b18e84a 100644
+--- a/libglusterfs/src/syncop.c
++++ b/libglusterfs/src/syncop.c
+@@ -400,10 +400,24 @@ synctask_create (struct syncenv *env, synctask_fn_t fn, synctask_cbk_t cbk,
+ {
+         struct synctask *newtask = NULL;
+         xlator_t        *this    = THIS;
++        int             destroymode = 0;
+ 
+         VALIDATE_OR_GOTO (env, err);
+         VALIDATE_OR_GOTO (fn, err);
+ 
++        /* Check if the syncenv is in destroymode i.e. destroy is SET.
++         * If YES, then don't allow any new synctasks on it. Return NULL.
++         */
++        pthread_mutex_lock(&env->mutex);
++        {
++                destroymode = env->destroy;
++        }
++        pthread_mutex_unlock(&env->mutex);
++
++        /* syncenv is in DESTROY mode, return from here */
++        if (destroymode)
++                return NULL;
++
+         newtask = CALLOC (1, sizeof (*newtask));
+         if (!newtask)
+                 return NULL;
+@@ -534,6 +548,10 @@ syncenv_task (struct syncproc *proc)
+                                                       &sleep_till);
+                         if (!list_empty (&env->runq))
+                                 break;
++                        if (env->destroy) {
++                                task = NULL;
++                                goto unlock;
++                        }
+                         if ((ret == ETIMEDOUT) &&
+                             (env->procs > env->procmin)) {
+                                 task = NULL;
+@@ -659,11 +677,45 @@ unlock:
+         pthread_mutex_unlock (&env->mutex);
+ }
+ 
+-
++/* The sycenv threads are cleaned up in this routine.
++ */
+ void
+ syncenv_destroy (struct syncenv *env)
+ {
++        int             i = 0;
++
++        if (env == NULL)
++                return;
++
++        /* SET the 'destroy' in syncenv structure to prohibit any
++         * further synctask(s) on this syncenv which is in destroy mode.
++         *
++         * If syncenv threads are in pthread cond wait with no tasks in
++         * their queue, then the threads are woken up by broadcasting the
++         * cond variable and if destroy field is set the infinite loop in
++         * syncenv_processor is broken and the thread joins.
++         *
++         * If synenv threads have tasks in runq, then the destroy bit it set
++         * when the tasks are complete, the thread joins.
++         */
++        pthread_mutex_lock (&env->mutex);
++        {
++                env->destroy = 1;
++                pthread_cond_broadcast (&env->cond);
++        }
++        pthread_mutex_unlock (&env->mutex);
++
++        for (i = 0; i < env->procmax; i++) {
++                if(env->proc[i].processor)
++                        pthread_join(env->proc[i].processor, NULL);
++        }
++
++        pthread_mutex_destroy (&env->mutex);
++        pthread_cond_destroy (&env->cond);
++
++        FREE(env);
+ 
++        return;
+ }
+ 
+ 
+diff --git a/libglusterfs/src/syncop.h b/libglusterfs/src/syncop.h
+index 16f3833..0b07557 100644
+--- a/libglusterfs/src/syncop.h
++++ b/libglusterfs/src/syncop.h
+@@ -105,6 +105,8 @@ struct syncenv {
+         pthread_mutex_t     mutex;
+         pthread_cond_t      cond;
+ 
++        int                 destroy; /* FLAG to mark syncenv is in destroy mode
++                                        so that no more synctasks are accepted*/
+         size_t              stacksize;
+ };
+ 
+diff --git a/libglusterfs/src/timer.c b/libglusterfs/src/timer.c
+index a059cc2..4b4278c 100644
+--- a/libglusterfs/src/timer.c
++++ b/libglusterfs/src/timer.c
+@@ -125,6 +125,7 @@ gf_timer_proc (void *ctx)
+ {
+         gf_timer_registry_t *reg = NULL;
+         const struct timespec sleepts = {.tv_sec = 1, .tv_nsec = 0, };
++        gf_timer_t *event = NULL;
+ 
+         if (ctx == NULL)
+         {
+@@ -141,7 +142,6 @@ gf_timer_proc (void *ctx)
+         while (!reg->fin) {
+                 uint64_t now;
+                 struct timespec now_ts;
+-                gf_timer_t *event = NULL;
+ 
+                 timespec_now (&now_ts);
+                 now = TS (now_ts);
+@@ -172,12 +172,20 @@ gf_timer_proc (void *ctx)
+ 
+         pthread_mutex_lock (&reg->lock);
+         {
++                /* Do not call gf_timer_call_cancel(),
++                 * it will lead to deadlock*/
+                 while (reg->active.next != &reg->active) {
+-                        gf_timer_call_cancel (ctx, reg->active.next);
++                        event = reg->active.next;
++                        event->next->prev = event->prev;
++                        event->prev->next = event->next;
++                        GF_FREE(event);
+                 }
+ 
+                 while (reg->stale.next != &reg->stale) {
+-                        gf_timer_call_cancel (ctx, reg->stale.next);
++                        event = reg->stale.next;
++                        event->next->prev = event->prev;
++                        event->prev->next = event->next;
++                        GF_FREE(event);
+                 }
+         }
+         pthread_mutex_unlock (&reg->lock);
+@@ -215,3 +223,18 @@ gf_timer_registry_init (glusterfs_ctx_t *ctx)
+ out:
+         return ctx->timer;
+ }
++
++void
++gf_timer_registry_destroy (glusterfs_ctx_t *ctx)
++{
++        pthread_t thr_id;
++        gf_timer_registry_t *reg = NULL;
++
++        if (ctx == NULL)
++                return;
++
++        reg = ctx->timer;
++        thr_id = reg->th;
++        reg->fin = 1;
++        pthread_join(thr_id, NULL);
++}
+diff --git a/libglusterfs/src/timer.h b/libglusterfs/src/timer.h
+index 2f963ad..e64b350 100644
+--- a/libglusterfs/src/timer.h
++++ b/libglusterfs/src/timer.h
+@@ -58,4 +58,6 @@ gf_timer_proc (void *data);
+ gf_timer_registry_t *
+ gf_timer_registry_init (glusterfs_ctx_t *ctx);
+ 
++void
++gf_timer_registry_destroy (glusterfs_ctx_t *ctx);
+ #endif /* _TIMER_H */
+diff --git a/libglusterfs/src/xlator.c b/libglusterfs/src/xlator.c
+index 1bded6d..dd3ec82 100644
+--- a/libglusterfs/src/xlator.c
++++ b/libglusterfs/src/xlator.c
+@@ -533,9 +533,35 @@ xlator_list_destroy (xlator_list_t *list)
+         return 0;
+ }
+ 
++int
++xlator_tree_free_memacct (xlator_t *tree)
++{
++        xlator_t *trav = tree;
++        xlator_t *prev = tree;
++        int          i = 0;
++
++        if (!tree) {
++                gf_log ("parser", GF_LOG_ERROR, "Translator tree not found");
++                return -1;
++        }
++
++        while (prev) {
++                trav = prev->next;
++                if (prev->mem_acct.rec) {
++                        for (i = 0; i < prev->mem_acct.num_types; i++) {
++                                LOCK_DESTROY(&(prev->mem_acct.rec[i].lock));
++                        }
++                        FREE (prev->mem_acct.rec);
++                }
++                GF_FREE (prev);
++                prev = trav;
++        }
++
++        return 0;
++}
+ 
+ int
+-xlator_tree_free (xlator_t *tree)
++xlator_tree_free_members (xlator_t *tree)
+ {
+         volume_opt_list_t *vol_opt = NULL;
+         volume_opt_list_t *tmp     = NULL;
+@@ -547,6 +573,12 @@ xlator_tree_free (xlator_t *tree)
+                 return -1;
+         }
+ 
++        /* The inode table is shared acrosss all xlators, only the
++         * first xlator_t will have a pointer to the inode table.
++         */
++        if (tree->itable)
++                inode_table_destroy (tree->itable);
++
+         while (prev) {
+                 trav = prev->next;
+                 if (prev->dlhandle)
+@@ -562,7 +594,6 @@ xlator_tree_free (xlator_t *tree)
+                         list_del_init (&vol_opt->list);
+                         GF_FREE (vol_opt);
+                 }
+-                GF_FREE (prev);
+                 prev = trav;
+         }
+ 
+diff --git a/libglusterfs/src/xlator.h b/libglusterfs/src/xlator.h
+index 47ae6cd..c0bb2d2 100644
+--- a/libglusterfs/src/xlator.h
++++ b/libglusterfs/src/xlator.h
+@@ -919,7 +919,8 @@ int xlator_init (xlator_t *this);
+ int xlator_destroy (xlator_t *xl);
+ 
+ int32_t xlator_tree_init (xlator_t *xl);
+-int32_t xlator_tree_free (xlator_t *xl);
++int32_t xlator_tree_free_members (xlator_t *xl);
++int32_t xlator_tree_free_memacct (xlator_t *xl);
+ 
+ void xlator_tree_fini (xlator_t *xl);
+ 
+diff --git a/tests/bugs/bug-1093594.c b/tests/bugs/bug-1093594.c
+new file mode 100644
+index 0000000..a35fa5f
+--- /dev/null
++++ b/tests/bugs/bug-1093594.c
+@@ -0,0 +1,313 @@
++#include <glfs.h>
++#include <glfs-handles.h>
++#include <errno.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#define WRITE_SIZE 128*1024
++#define READ_WRITE_LOOP 100
++#define FOP_LOOP_COUNT 20
++#define TEST_CASE_LOOP 20
++
++int gfapi = 1;
++static int extension = 1;
++
++static int
++large_number_of_fops (glfs_t *fs) {
++        int       ret       = 0;
++        int       i         = 0;
++        glfs_fd_t *fd       = NULL;
++        glfs_fd_t *fd1      = NULL;
++        char      *dir1     = NULL, *dir2 = NULL, *filename1 = NULL, *filename2 = NULL;
++        char      *buf      = NULL;
++        struct stat sb      = {0, };
++
++	for (i=0 ; i<FOP_LOOP_COUNT ; i++) {
++        	ret = asprintf (&dir1, "dir%d", extension);
++        	if (ret < 0) {
++                	fprintf (stderr, "cannot construct filename (%s)",
++                         	strerror (errno));
++                	return ret;
++        	}
++
++        	extension++;
++
++        	ret = glfs_mkdir (fs, dir1, 0755);
++        	if (ret < 0) {
++                	fprintf (stderr, "mkdir(%s): %s\n", dir1, strerror (errno));
++                	return -1;
++        	}
++
++        	fd = glfs_opendir (fs, dir1);
++        	if (!fd) {
++                	fprintf (stderr, "/: %s\n", strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_fsetxattr (fd,"user.dirfattr", "fsetxattr", 8, 0);
++        	if (ret < 0) {
++                	fprintf (stderr, "fsetxattr(%s): %d (%s)\n", dir1, ret,
++                        	strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_closedir (fd);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_closedir failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_rmdir (fs, dir1);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++
++	        ret = asprintf (&filename1, "file%d", extension);
++        	if (ret < 0) {
++                	fprintf (stderr, "cannot construct filename (%s)",
++                		strerror (errno));
++                	return ret;
++        	}
++
++        	ret = asprintf (&filename2, "file-%d", extension);
++        	if (ret < 0) {
++                	fprintf (stderr, "cannot construct filename (%s)",
++                        	strerror (errno));
++                	return ret;
++        	}
++
++                extension++;
++
++                fd = glfs_creat (fs, filename1, O_RDWR, 0644);
++	        if (!fd) {
++        	        fprintf (stderr, "%s: (%p) %s\n", filename1, fd,
++                	        strerror (errno));
++                	return -1;
++        	}
++
++		ret = glfs_rename (fs, filename1, filename2);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_rename failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++
++                ret = glfs_lstat (fs, filename2, &sb);
++                if (ret < 0) {
++                        fprintf (stderr, "glfs_lstat failed with ret: %d (%s)\n",
++                                ret, strerror (errno));
++                        return -1;
++                }
++
++                ret = glfs_close (fd);
++                if (ret < 0) {
++                        fprintf (stderr, "glfs_close failed with ret: %d (%s)\n",
++                                ret, strerror (errno));
++                        return -1;
++                }
++
++                ret = glfs_unlink (fs, filename2);
++                if (ret < 0) {
++                        fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
++                                ret, strerror (errno));
++                        return -1;
++                }
++        }
++}
++
++static int
++large_read_write (glfs_t *fs) {
++
++        int       ret       = 0;
++        int       j         = 0;
++        glfs_fd_t *fd       = NULL;
++        glfs_fd_t *fd1      = NULL;
++        char      *filename = NULL;
++        char      *buf      = NULL;
++
++        ret = asprintf (&filename, "filerw%d", extension);
++        if (ret < 0) {
++                fprintf (stderr, "cannot construct filename (%s)",
++                         strerror (errno));
++                return ret;
++        }
++
++        extension++;
++
++        fd = glfs_creat (fs, filename, O_RDWR, 0644);
++        if (!fd) {
++        	fprintf (stderr, "%s: (%p) %s\n", filename, fd,
++                        strerror (errno));
++                return -1;
++        }
++
++        buf = (char *) malloc (WRITE_SIZE);
++        memset (buf, '-', WRITE_SIZE);
++
++        for (j = 0; j < READ_WRITE_LOOP; j++) {
++        	ret = glfs_write (fd, buf, WRITE_SIZE, 0);
++                if (ret < 0) {
++                	fprintf (stderr, "Write(%s): %d (%s)\n", filename, ret,
++                                strerror (errno));
++                        return ret;
++                }
++        }
++
++        fd1 = glfs_open (fs, filename, O_RDWR);
++        if (fd1 < 0) {
++                fprintf (stderr, "Open(%s): %d (%s)\n", filename, ret,
++                        strerror (errno));
++                return -1;
++        }
++
++        glfs_lseek (fd1, 0, SEEK_SET);
++        for (j = 0; j < READ_WRITE_LOOP; j++) {
++                ret = glfs_read (fd1, buf, WRITE_SIZE, 0);
++                if (ret < 0) {
++                        fprintf (stderr, "Read(%s): %d (%s)\n", filename, ret,
++                                strerror (errno));
++                        return ret;
++                }
++        }
++
++        for (j = 0; j < READ_WRITE_LOOP; j++) {
++                ret = glfs_write (fd1, buf, WRITE_SIZE, 0);
++                if (ret < 0) {
++                        fprintf (stderr, "Write(%s): %d (%s)\n", filename, ret,
++                                strerror (errno));
++                        return ret;
++                }
++        }
++
++        glfs_close (fd);
++        glfs_close (fd1);
++        ret = glfs_unlink (fs, filename);
++        if (ret < 0) {
++                fprintf (stderr, "glfs_unlink failed with ret: %d (%s)\n",
++                        ret, strerror (errno));
++                return -1;
++        }
++
++        free (buf);
++        free (filename);
++}
++
++static int
++volfile_change (const char *volname) {
++        int   ret = 0;
++        char *cmd = NULL, *cmd1 = NULL;
++
++        ret = asprintf (&cmd, "gluster volume set %s stat-prefetch off",
++                        volname);
++        if (ret < 0) {
++                fprintf (stderr, "cannot construct cli command string (%s)",
++                         strerror (errno));
++                return ret;
++        }
++
++        ret = asprintf (&cmd, "gluster volume set %s stat-prefetch on",
++                        volname);
++        if (ret < 0) {
++                fprintf (stderr, "cannot construct cli command string (%s)",
++                         strerror (errno));
++                return ret;
++        }
++
++        ret = system (cmd);
++        if (ret < 0) {
++                fprintf (stderr, "stat-prefetch off on (%s) failed", volname);
++                return ret;
++        }
++
++        ret = system (cmd1);
++        if (ret < 0) {
++                fprintf (stderr, "stat-prefetch on on (%s) failed", volname);
++                return ret;
++        }
++
++        free (cmd);
++        free (cmd1);
++        return ret;
++}
++
++int
++main (int argc, char *argv[])
++{
++        glfs_t    *fs       = NULL;
++        int       ret       = 0;
++        int       i         = 0;
++        glfs_fd_t *fd       = NULL;
++        glfs_fd_t *fd1      = NULL;
++        char      *topdir   = "topdir", *filename = "file1";
++        char      *buf      = NULL;
++
++        if (argc != 2) {
++                fprintf (stderr,
++                        "Expect following args %s <Vol>\n"
++                        ,argv[0]);
++                return -1;
++        }
++
++        for (i = 0; i < TEST_CASE_LOOP; i++) {
++        	fs = glfs_new (argv[1]);
++        	if (!fs) {
++                	fprintf (stderr, "glfs_new: returned NULL (%s)\n",
++                        	strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_set_volfile_server (fs, "tcp", "localhost", 24007);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_set_volfile_server failed ret:%d (%s)\n",
++                	ret, strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_set_logging (fs, "/tmp/bug-fini-cleanup.log", 7);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_set_logging failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++
++        	ret = glfs_init (fs);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_init failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++
++                ret = large_number_of_fops (fs);
++                if (ret < 0)
++                        return -1;
++
++                ret = large_read_write (fs);
++                if (ret < 0)
++                        return -1;
++
++                ret = volfile_change (argv[1]);
++                if (ret < 0)
++                        return -1;
++
++                ret = large_number_of_fops (fs);
++                if (ret < 0)
++                        return -1;
++
++                ret = large_read_write (fs);
++                if (ret < 0)
++                        return -1;
++
++        	ret = glfs_fini (fs);
++        	if (ret < 0) {
++                	fprintf (stderr, "glfs_fini failed with ret: %d (%s)\n",
++                        	ret, strerror (errno));
++                	return -1;
++        	}
++	}
++        return 0;
++}
++
+diff --git a/tests/bugs/bug-1093594.t b/tests/bugs/bug-1093594.t
+new file mode 100644
+index 0000000..61d1d0c
+--- /dev/null
++++ b/tests/bugs/bug-1093594.t
+@@ -0,0 +1,23 @@
++#!/bin/bash
++. $(dirname $0)/../include.rc
++. $(dirname $0)/../volume.rc
++
++cleanup;
++
++## Start and create a volume
++TEST glusterd;
++TEST pidof glusterd;
++TEST $CLI volume info;
++
++TEST $CLI volume create $V0 $H0:$B0/${V0}{1,2};
++TEST $CLI volume start $V0;
++
++cd $(dirname $0)/../../
++./autogen.sh
++./configure
++make
++gcc -L $(dirname $0)/../../api/src/.libs -lgfapi -I$(dirname $0)/../../api/src $(dirname $0)/bug-1093594.c -o $(dirname $0)/bug-1093594
++TEST $(dirname $0)/bug-1093594 $V0
++
++cleanup;
++
+-- 
+2.1.0
+
