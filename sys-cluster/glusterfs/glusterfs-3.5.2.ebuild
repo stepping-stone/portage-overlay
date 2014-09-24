@@ -63,6 +63,7 @@ PATCHES=(
 	"${FILESDIR}/${PV}/0017-features-marker-Fill-loc-path-before-sending-the-con.patch"
 	"${FILESDIR}/${PV}/0018-heal-Do-not-ignore-return-value-of-syncop_getxattr.patch"
 	"${FILESDIR}/${PV}/0019-cluster-dht-Fix-dict_t-leaks-in-rebalance-process-ex.patch"
+	"${FILESDIR}/${P}-glfs_fini-Fix-a-possible-hang-in-glfs_fini.patch"
 	"${FILESDIR}/${P}-glfs_fini-Clean-up-all-the-resources-allocated-in-gl.patch"
 )
 
