@@ -26,6 +26,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	app-emulation/ksm
 	net-misc/dhcpcd
 	net-misc/dhcp
+	sys-process/htop
 	>=sys-cluster/glusterfs-3.5.2
 	>=app-emulation/qemu-2.1.1-r1
 	>=app-emulation/libvirt-1.2.8
