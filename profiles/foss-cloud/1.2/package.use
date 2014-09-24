@@ -22,3 +22,4 @@ dev-lang/php zip
 app-admin/ulogd nfacct
 
 net-misc/iperf threads
+sys-block/fio glusterfs
