@@ -266,7 +266,7 @@ src_prepare() {
 	# Verbose builds
 	MAKEOPTS+=" V=1"
 
-	epatch "${FILESDIR}/${PV}"
+	EPATCH_FORCE="yes" EPATCH_SUFFIX="patch" epatch "${FILESDIR}/${PV}"
 
 	epatch_user
 }
