@@ -1,0 +1,37 @@
+From 51ceb3ceaa2f192a0612b9a794d3282a059d2c9d Mon Sep 17 00:00:00 2001
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Sun, 7 Sep 2014 20:09:36 +0200
+Subject: [PATCH] util: get rid of unnecessary umask() call
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit d00c6fd25854bfd4822f6ce3d769a8ca132ec31b)
+---
+ src/util/virpidfile.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/src/util/virpidfile.c b/src/util/virpidfile.c
+index dd29701..a3b8846 100644
+--- a/src/util/virpidfile.c
++++ b/src/util/virpidfile.c
+@@ -545,17 +545,15 @@ virPidFileConstructPath(bool privileged,
+         if (virAsprintf(pidfile, "%s/run/%s.pid", statedir, progname) < 0)
+             goto cleanup;
+     } else {
+-        mode_t old_umask;
+-
+         if (!(rundir = virGetUserRuntimeDirectory()))
+             goto cleanup;
+ 
+-        old_umask = umask(077);
+-        if (virFileMakePath(rundir) < 0) {
+-            umask(old_umask);
++        if (virFileMakePathWithMode(rundir, 0700) < 0) {
++            virReportSystemError(errno,
++                                 _("Cannot create user runtime directory '%s'"),
++                                 rundir);
+             goto cleanup;
+         }
+-        umask(old_umask);
+ 
+         if (virAsprintf(pidfile, "%s/%s.pid", rundir, progname) < 0) {
+             VIR_FREE(rundir);

@@ -1,0 +1,233 @@
+From 5217124c8f276a9d35b60470a332d887af4cc446 Mon Sep 17 00:00:00 2001
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Sun, 7 Sep 2014 19:52:34 +0200
+Subject: [PATCH] remove redundant pidfile path constructions
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 8035f2e6f2db7fc0b74b639deb7eff64957692bc)
+---
+ daemon/libvirtd.c         | 41 ++++-----------------------------------
+ src/libvirt_private.syms  |  1 +
+ src/locking/lock_daemon.c | 42 ++++------------------------------------
+ src/util/virpidfile.c     | 49 ++++++++++++++++++++++++++++++++++++++++++++++-
+ src/util/virpidfile.h     |  7 ++++++-
+ 5 files changed, 63 insertions(+), 77 deletions(-)
+
+diff --git a/daemon/libvirtd.c b/daemon/libvirtd.c
+index 0503cd0..61f5486 100644
+--- a/daemon/libvirtd.c
++++ b/daemon/libvirtd.c
+@@ -251,41 +251,6 @@ static int daemonForkIntoBackground(const char *argv0)
+ 
+ 
+ static int
+-daemonPidFilePath(bool privileged,
+-                  char **pidfile)
+-{
+-    if (privileged) {
+-        if (VIR_STRDUP(*pidfile, LOCALSTATEDIR "/run/libvirtd.pid") < 0)
+-            goto error;
+-    } else {
+-        char *rundir = NULL;
+-        mode_t old_umask;
+-
+-        if (!(rundir = virGetUserRuntimeDirectory()))
+-            goto error;
+-
+-        old_umask = umask(077);
+-        if (virFileMakePath(rundir) < 0) {
+-            umask(old_umask);
+-            goto error;
+-        }
+-        umask(old_umask);
+-
+-        if (virAsprintf(pidfile, "%s/libvirtd.pid", rundir) < 0) {
+-            VIR_FREE(rundir);
+-            goto error;
+-        }
+-
+-        VIR_FREE(rundir);
+-    }
+-
+-    return 0;
+-
+- error:
+-    return -1;
+-}
+-
+-static int
+ daemonUnixSocketPaths(struct daemonConfig *config,
+                       bool privileged,
+                       char **sockfile,
+@@ -1313,8 +1278,10 @@ int main(int argc, char **argv) {
+     }
+ 
+     if (!pid_file &&
+-        daemonPidFilePath(privileged,
+-                          &pid_file) < 0) {
++        virPidFileConstructPath(privileged,
++                                LOCALSTATEDIR,
++                                "libvirtd",
++                                &pid_file) < 0) {
+         VIR_ERROR(_("Can't determine pid file path."));
+         exit(EXIT_FAILURE);
+     }
+diff --git a/src/libvirt_private.syms b/src/libvirt_private.syms
+index 71fc063..f8d9b95 100644
+--- a/src/libvirt_private.syms
++++ b/src/libvirt_private.syms
+@@ -1773,6 +1773,7 @@ virPCIIsVirtualFunction;
+ virPidFileAcquire;
+ virPidFileAcquirePath;
+ virPidFileBuildPath;
++virPidFileConstructPath;
+ virPidFileDelete;
+ virPidFileDeletePath;
+ virPidFileRead;
+diff --git a/src/locking/lock_daemon.c b/src/locking/lock_daemon.c
+index 02d77e3..fe7cfb8 100644
+--- a/src/locking/lock_daemon.c
++++ b/src/locking/lock_daemon.c
+@@ -366,42 +366,6 @@ virLockDaemonForkIntoBackground(const char *argv0)
+ 
+ 
+ static int
+-virLockDaemonPidFilePath(bool privileged,
+-                         char **pidfile)
+-{
+-    if (privileged) {
+-        if (VIR_STRDUP(*pidfile, LOCALSTATEDIR "/run/virtlockd.pid") < 0)
+-            goto error;
+-    } else {
+-        char *rundir = NULL;
+-        mode_t old_umask;
+-
+-        if (!(rundir = virGetUserRuntimeDirectory()))
+-            goto error;
+-
+-        old_umask = umask(077);
+-        if (virFileMakePath(rundir) < 0) {
+-            umask(old_umask);
+-            goto error;
+-        }
+-        umask(old_umask);
+-
+-        if (virAsprintf(pidfile, "%s/virtlockd.pid", rundir) < 0) {
+-            VIR_FREE(rundir);
+-            goto error;
+-        }
+-
+-        VIR_FREE(rundir);
+-    }
+-
+-    return 0;
+-
+- error:
+-    return -1;
+-}
+-
+-
+-static int
+ virLockDaemonUnixSocketPaths(bool privileged,
+                              char **sockfile)
+ {
+@@ -1283,8 +1247,10 @@ int main(int argc, char **argv) {
+     }
+ 
+     if (!pid_file &&
+-        virLockDaemonPidFilePath(privileged,
+-                                 &pid_file) < 0) {
++        virPidFileConstructPath(privileged,
++                                LOCALSTATEDIR,
++                                "virtlockd",
++                                &pid_file) < 0) {
+         VIR_ERROR(_("Can't determine pid file path."));
+         exit(EXIT_FAILURE);
+     }
+diff --git a/src/util/virpidfile.c b/src/util/virpidfile.c
+index 1d9a1c5..19ec103 100644
+--- a/src/util/virpidfile.c
++++ b/src/util/virpidfile.c
+@@ -1,7 +1,7 @@
+ /*
+  * virpidfile.c: manipulation of pidfiles
+  *
+- * Copyright (C) 2010-2012 Red Hat, Inc.
++ * Copyright (C) 2010-2012, 2014 Red Hat, Inc.
+  * Copyright (C) 2006, 2007 Binary Karma
+  * Copyright (C) 2006 Shuveb Hussain
+  *
+@@ -521,3 +521,50 @@ int virPidFileRelease(const char *dir,
+     VIR_FREE(pidfile);
+     return rc;
+ }
++
++
++int
++virPidFileConstructPath(bool privileged,
++                        const char *statedir,
++                        const char *progname,
++                        char **pidfile)
++{
++    if (privileged) {
++        /*
++         * This is here just to allow calling this function with
++         * statedir == NULL; of course only when !privileged.
++         */
++        if (!statedir) {
++            virReportError(VIR_ERR_INTERNAL_ERROR,
++                           "%s", _("No statedir specified"));
++            goto cleanup;
++        }
++        if (virAsprintf(pidfile, "%s/run/%s.pid", statedir, progname) < 0)
++            goto cleanup;
++    } else {
++        char *rundir = NULL;
++        mode_t old_umask;
++
++        if (!(rundir = virGetUserRuntimeDirectory()))
++            goto error;
++
++        old_umask = umask(077);
++        if (virFileMakePath(rundir) < 0) {
++            umask(old_umask);
++            goto error;
++        }
++        umask(old_umask);
++
++        if (virAsprintf(pidfile, "%s/%s.pid", rundir, progname) < 0) {
++            VIR_FREE(rundir);
++            goto error;
++        }
++
++        VIR_FREE(rundir);
++    }
++
++    return 0;
++
++ error:
++    return -1;
++}
+diff --git a/src/util/virpidfile.h b/src/util/virpidfile.h
+index 2720206..ca1dbff 100644
+--- a/src/util/virpidfile.h
++++ b/src/util/virpidfile.h
+@@ -1,7 +1,7 @@
+ /*
+  * virpidfile.h: manipulation of pidfiles
+  *
+- * Copyright (C) 2010-2011 Red Hat, Inc.
++ * Copyright (C) 2010-2011, 2014 Red Hat, Inc.
+  * Copyright (C) 2006, 2007 Binary Karma
+  * Copyright (C) 2006 Shuveb Hussain
+  *
+@@ -69,4 +69,9 @@ int virPidFileRelease(const char *dir,
+                       const char *name,
+                       int fd);
+ 
++int virPidFileConstructPath(bool privileged,
++                            const char *statedir,
++                            const char *progname,
++                            char **pidfile);
++
+ #endif /* __VIR_PIDFILE_H__ */

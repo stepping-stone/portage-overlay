@@ -1,0 +1,62 @@
+From 0bf4b718fafa22c67f84ffd0b4434a5c7b1bce94 Mon Sep 17 00:00:00 2001
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Sun, 7 Sep 2014 20:07:49 +0200
+Subject: [PATCH] util: fix potential leak in error codepath
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit aaaa2d56bd47556b6857ecca33e4b28ab36c8488)
+---
+ src/util/virpidfile.c | 19 ++++++++++---------
+ 1 file changed, 10 insertions(+), 9 deletions(-)
+
+diff --git a/src/util/virpidfile.c b/src/util/virpidfile.c
+index 19ec103..dd29701 100644
+--- a/src/util/virpidfile.c
++++ b/src/util/virpidfile.c
+@@ -529,6 +529,9 @@ virPidFileConstructPath(bool privileged,
+                         const char *progname,
+                         char **pidfile)
+ {
++    int ret = -1;
++    char *rundir = NULL;
++
+     if (privileged) {
+         /*
+          * This is here just to allow calling this function with
+@@ -542,29 +545,27 @@ virPidFileConstructPath(bool privileged,
+         if (virAsprintf(pidfile, "%s/run/%s.pid", statedir, progname) < 0)
+             goto cleanup;
+     } else {
+-        char *rundir = NULL;
+         mode_t old_umask;
+ 
+         if (!(rundir = virGetUserRuntimeDirectory()))
+-            goto error;
++            goto cleanup;
+ 
+         old_umask = umask(077);
+         if (virFileMakePath(rundir) < 0) {
+             umask(old_umask);
+-            goto error;
++            goto cleanup;
+         }
+         umask(old_umask);
+ 
+         if (virAsprintf(pidfile, "%s/%s.pid", rundir, progname) < 0) {
+             VIR_FREE(rundir);
+-            goto error;
++            goto cleanup;
+         }
+ 
+-        VIR_FREE(rundir);
+     }
+ 
+-    return 0;
+-
+- error:
+-    return -1;
++    ret = 0;
++ cleanup:
++    VIR_FREE(rundir);
++    return ret;
+ }

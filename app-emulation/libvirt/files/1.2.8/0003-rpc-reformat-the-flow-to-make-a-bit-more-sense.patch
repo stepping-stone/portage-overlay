@@ -1,0 +1,131 @@
+From 00d63796318b065479eda661ab83503cc1cf8446 Mon Sep 17 00:00:00 2001
+From: Martin Kletzander <mkletzan@redhat.com>
+Date: Sun, 7 Sep 2014 17:08:57 +0200
+Subject: [PATCH] rpc: reformat the flow to make a bit more sense
+
+Just remove useless "else".  Best viewed with '-w'.
+
+Signed-off-by: Martin Kletzander <mkletzan@redhat.com>
+(cherry picked from commit 3951d4a6d3d5867eadc82814e8dd9a61d19b68cf)
+---
+ src/rpc/virnetsocket.c | 94 +++++++++++++++++++++++++-------------------------
+ 1 file changed, 47 insertions(+), 47 deletions(-)
+
+diff --git a/src/rpc/virnetsocket.c b/src/rpc/virnetsocket.c
+index 9780e17..306c9ea 100644
+--- a/src/rpc/virnetsocket.c
++++ b/src/rpc/virnetsocket.c
+@@ -574,66 +574,66 @@ int virNetSocketNewConnectUNIX(const char *path,
+ 
+  retry:
+     if (connect(fd, &remoteAddr.data.sa, remoteAddr.len) < 0) {
++        int status = 0;
++        pid_t pid = 0;
++
+         if (!spawnDaemon) {
+             virReportSystemError(errno, _("Failed to connect socket to '%s'"),
+                                  path);
+             goto error;
+-        } else {
+-            int status = 0;
+-            pid_t pid = 0;
+-
+-            if ((passfd = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
+-                virReportSystemError(errno, "%s", _("Failed to create socket"));
+-                goto error;
+-            }
++        }
+ 
+-            /*
+-             * We have to fork() here, because umask() is set
+-             * per-process, chmod() is racy and fchmod() has undefined
+-             * behaviour on sockets according to POSIX, so it doesn't
+-             * work outside Linux.
+-             */
+-            if ((pid = virFork()) < 0)
+-                goto error;
++        if ((passfd = socket(PF_UNIX, SOCK_STREAM, 0)) < 0) {
++            virReportSystemError(errno, "%s", _("Failed to create socket"));
++            goto error;
++        }
+ 
+-            if (pid == 0) {
+-                umask(0077);
+-                if (bind(passfd, &remoteAddr.data.sa, remoteAddr.len) < 0)
+-                    _exit(EXIT_FAILURE);
++        /*
++         * We have to fork() here, because umask() is set
++         * per-process, chmod() is racy and fchmod() has undefined
++         * behaviour on sockets according to POSIX, so it doesn't
++         * work outside Linux.
++         */
++        if ((pid = virFork()) < 0)
++            goto error;
+ 
+-                _exit(EXIT_SUCCESS);
+-            }
++        if (pid == 0) {
++            umask(0077);
++            if (bind(passfd, &remoteAddr.data.sa, remoteAddr.len) < 0)
++                _exit(EXIT_FAILURE);
+ 
+-            if (virProcessWait(pid, &status, false) < 0)
+-                goto error;
++            _exit(EXIT_SUCCESS);
++        }
+ 
+-            if (status != EXIT_SUCCESS) {
+-                /*
+-                 * OK, so the subprocces failed to bind() the socket.  This may mean
+-                 * that another daemon was starting at the same time and succeeded
+-                 * with its bind().  So we'll try connecting again, but this time
+-                 * without spawning the daemon.
+-                 */
+-                spawnDaemon = false;
+-                goto retry;
+-            }
++        if (virProcessWait(pid, &status, false) < 0)
++            goto error;
+ 
+-            if (listen(passfd, 0) < 0) {
+-                virReportSystemError(errno, "%s",
+-                                     _("Failed to listen on socket that's about "
+-                                       "to be passed to the daemon"));
+-                goto error;
+-            }
++        if (status != EXIT_SUCCESS) {
++            /*
++             * OK, so the subprocces failed to bind() the socket.  This may mean
++             * that another daemon was starting at the same time and succeeded
++             * with its bind().  So we'll try connecting again, but this time
++             * without spawning the daemon.
++             */
++            spawnDaemon = false;
++            goto retry;
++        }
+ 
+-            if (connect(fd, &remoteAddr.data.sa, remoteAddr.len) < 0) {
+-                virReportSystemError(errno, _("Failed to connect socket to '%s'"),
+-                                     path);
+-                goto error;
+-            }
++        if (listen(passfd, 0) < 0) {
++            virReportSystemError(errno, "%s",
++                                 _("Failed to listen on socket that's about "
++                                   "to be passed to the daemon"));
++            goto error;
++        }
+ 
+-            if (virNetSocketForkDaemon(binary, passfd) < 0)
+-                goto error;
++        if (connect(fd, &remoteAddr.data.sa, remoteAddr.len) < 0) {
++            virReportSystemError(errno, _("Failed to connect socket to '%s'"),
++                                 path);
++            goto error;
+         }
++
++        if (virNetSocketForkDaemon(binary, passfd) < 0)
++            goto error;
+     }
+ 
+     localAddr.len = sizeof(localAddr.data);

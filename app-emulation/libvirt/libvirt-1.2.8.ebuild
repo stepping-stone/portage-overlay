@@ -1,6 +1,6 @@
 # Copyright 1999-2014 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
-# $Header: /var/cvsroot/gentoo-x86/app-emulation/libvirt/libvirt-1.2.3.ebuild,v 1.3 2014/04/21 08:00:15 ago Exp $
+# $Header: /var/cvsroot/gentoo-x86/app-emulation/libvirt/libvirt-1.2.6.ebuild,v 1.3 2014/08/06 03:22:22 patrick Exp $
 
 EAPI=5
 
@@ -22,7 +22,7 @@ else
 		ftp://libvirt.org/libvirt/${MY_P}.tar.gz
 		${BACKPORTS:+
 			http://dev.gentoo.org/~cardoe/distfiles/${MY_P}-${BACKPORTS}.tar.xz}"
-	KEYWORDS="amd64 x86"
+	KEYWORDS="~amd64 ~x86"
 fi
 S="${WORKDIR}/${P%_rc*}"
 
@@ -128,7 +128,7 @@ LXC_CONFIG_CHECK="
 	~CGROUP_PERF
 	~BLK_CGROUP
 	~NET_CLS_CGROUP
-	~NETPRIO_CGROUP
+	~CGROUP_NET_PRIO
 	~CPUSETS
 	~RESOURCE_COUNTERS
 	~NAMESPACES
@@ -156,6 +156,16 @@ VIRTNET_CONFIG_CHECK="
 	~NETFILTER_XT_TARGET_CHECKSUM
 	~NETFILTER_XT_CONNMARK
 	~NETFILTER_XT_MARK
+"
+
+BWLMT_CONFIG_CHECK="
+	~BRIDGE_EBT_T_NAT
+	~NET_SCH_HTB
+	~NET_SCH_SFQ
+	~NET_SCH_INGRESS
+	~NET_CLS_FW
+	~NET_CLS_U32
+	~NET_ACT_POLICE
 "
 
 MACVTAP_CONFIG_CHECK=" ~MACVTAP"
@@ -186,6 +196,8 @@ pkg_setup() {
 	use lxc && CONFIG_CHECK+="${LXC_CONFIG_CHECK}"
 	use macvtap && CONFIG_CHECK+="${MACVTAP_CONFIG_CHECK}"
 	use virt-network && CONFIG_CHECK+="${VIRTNET_CONFIG_CHECK}"
+	# Bandwidth Limiting Support
+	use virt-network && CONFIG_CHECK+="${BWLMT_CONFIG_CHECK}"
 	if [[ -n ${CONFIG_CHECK} ]]; then
 		linux-info_pkg_setup
 	fi
@@ -228,6 +240,8 @@ src_prepare() {
 	sed -e "s/USE_FLAG_AVAHI/${avahi_init}/" -i "${S}/libvirtd.init"
 	sed -e "s/USE_FLAG_ISCSI/${iscsi_init}/" -i "${S}/libvirtd.init"
 	sed -e "s/USE_FLAG_RBD/${rbd_init}/" -i "${S}/libvirtd.init"
+
+	EPATCH_FORCE=yes EPATCH_SUFFIX="patch" epatch "${FILESDIR}/${PV}"
 }
 
 src_configure() {
@@ -307,6 +321,7 @@ src_configure() {
 
 	## stuff we don't yet support
 	myconf="${myconf} --without-netcf"
+	myconf="${myconf} --without-wireshark-dissector"
 
 	# we use udev over hal
 	myconf="${myconf} --without-hal"
@@ -369,7 +384,9 @@ src_install() {
 	newconfd "${FILESDIR}/libvirtd.confd-r4" libvirtd || die
 	newinitd "${FILESDIR}/virtlockd.init" virtlockd || die
 
-	keepdir /var/lib/libvirt/images
+	keepdir /var/lib/libvirt/{boot,images,network}
+	use qemu && keepdir /var/{cache,lib,log}/libvirt/qemu
+	use lxc && keepdir /var/{cache,lib,log}/libvirt/lxc
 
 	readme.gentoo_create_doc
 }
