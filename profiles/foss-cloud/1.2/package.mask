@@ -9,6 +9,8 @@ sys-apps/module-init-tools
 >=sys-kernel/linux-headers-3.11
 >=sys-kernel/hardened-sources-3.15
 
-# help the resolver in portage to always use perl-5.18
+# help the resolver in portage by masking some packages
 =dev-lang/perl-5.12*
 =dev-lang/perl-5.16*
+<app-emulation/libvirt-1.2.8
+<dev-perl/Sys-Virt-1.2.8

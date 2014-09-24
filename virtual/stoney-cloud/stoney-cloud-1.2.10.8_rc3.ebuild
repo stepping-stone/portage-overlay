@@ -26,9 +26,9 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	app-emulation/ksm
 	net-misc/dhcpcd
 	net-misc/dhcp
-	>=sys-cluster/glusterfs-3.5.1
-	>=app-emulation/qemu-2.1.1
-	>=app-emulation/libvirt-1.2.6
+	>=sys-cluster/glusterfs-3.5.2
+	>=app-emulation/qemu-2.1.1-r1
+	>=app-emulation/libvirt-1.2.8
 	>=net-misc/ucarp-1.5.2-r3
 	>=sys-apps/haveged-1.7a
 	>=sys-apps/smartmontools-6.1
