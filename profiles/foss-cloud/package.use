@@ -10,6 +10,8 @@ net-misc/dhcp ldap -ipv6
 
 app-admin/eselect-php apache2
 dev-lang/php apache2 filter ldap mhash xml -berkdb -gdbm -ncurses -readline
+www-servers/apache ldap
+dev-libs/apr-util ldap
 
 net-nds/openldap cxx overlays sasl syslog
 
