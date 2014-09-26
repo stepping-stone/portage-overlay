@@ -233,11 +233,10 @@ pkg_pretend() {
 	fi
 
 	if grep -qs '/usr/bin/qemu-kvm' "${EROOT}"/etc/libvirt/qemu/*.xml; then
-		eerror "The kvm/qemu-kvm wrappers no longer exist, but your libvirt"
-		eerror "instances are still pointing to it.  Please update your"
-		eerror "configs in /etc/libvirt/qemu/ to use the -enable-kvm flag"
-		eerror "and the right system binary (e.g. qemu-system-x86_64)."
-		die "update your virt configs to not use qemu-kvm"
+		ewarn "The kvm/qemu-kvm wrappers no longer exist, but your libvirt"
+		ewarn "instances are still pointing to it.  Please update your"
+		ewarn "configs in /etc/libvirt/qemu/ to use the -enable-kvm flag"
+		ewarn "and the right system binary (e.g. qemu-system-x86_64)."
 	fi
 }
 
