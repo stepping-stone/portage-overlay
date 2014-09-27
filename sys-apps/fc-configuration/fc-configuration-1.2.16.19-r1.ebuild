@@ -40,7 +40,7 @@ RDEPEND=">=sys-apps/sst-syslog-ng-configuration-2.3.0
 S="${WORKDIR}/${MY_P}"
 
 src_install() {
-	doconfd conf.d/{hwclock,keymaps,net,apache2,libvirtd,ucarp.int,ucarp.pub}
+	doconfd conf.d/{apache2,hwclock,keymaps,libvirtd,modules,net,ucarp.int,ucarp.pub}
 	doinitd init.d/{dhcpd,slapd}
 	doenvd env.d/02locale env.d/99editor
 
