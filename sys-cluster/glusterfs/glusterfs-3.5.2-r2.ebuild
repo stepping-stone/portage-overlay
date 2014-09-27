@@ -63,11 +63,11 @@ PATCHES=(
 	"${FILESDIR}/${PV}/0017-features-marker-Fill-loc-path-before-sending-the-con.patch"
 	"${FILESDIR}/${PV}/0018-heal-Do-not-ignore-return-value-of-syncop_getxattr.patch"
 	"${FILESDIR}/${PV}/0019-cluster-dht-Fix-dict_t-leaks-in-rebalance-process-ex.patch"
+	"${FILESDIR}/${PV}/0020-socket-Fixed-parsing-RPC-records-containing-multi-fr.patch"
 	"${FILESDIR}/${P}-glfs_fini-Fix-a-possible-hang-in-glfs_fini.patch"
-	"${FILESDIR}/${P}-glfs_fini-Clean-up-all-the-resources-allocated-in-gl.patch"
-	"${FILESDIR}/${P}-socket-Fixed-parsing-RPC-records-containing-multi-fr.patch"
 	"${FILESDIR}/${P}-Only-cleanup-priv-shd.statistics-if-created.patch"
 )
+#	"${FILESDIR}/${P}-glfs_fini-Clean-up-all-the-resources-allocated-in-gl.patch"
 
 DOCS=( AUTHORS ChangeLog NEWS README THANKS )
 
