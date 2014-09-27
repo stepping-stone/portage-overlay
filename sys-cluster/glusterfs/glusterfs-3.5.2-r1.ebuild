@@ -65,6 +65,8 @@ PATCHES=(
 	"${FILESDIR}/${PV}/0019-cluster-dht-Fix-dict_t-leaks-in-rebalance-process-ex.patch"
 	"${FILESDIR}/${P}-glfs_fini-Fix-a-possible-hang-in-glfs_fini.patch"
 	"${FILESDIR}/${P}-glfs_fini-Clean-up-all-the-resources-allocated-in-gl.patch"
+	"${FILESDIR}/${P}-socket-Fixed-parsing-RPC-records-containing-multi-fr.patch"
+	"${FILESDIR}/${P}-Only-cleanup-priv-shd.statistics-if-created.patch"
 )
 
 DOCS=( AUTHORS ChangeLog NEWS README THANKS )

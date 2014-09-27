@@ -1,0 +1,47 @@
+From bcdd1d27403b1da6e4ca3ff0091f564bf162dae7 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Tiziano=20M=C3=BCller?= <tiziano.mueller@stepping-stone.ch>
+Date: Sat, 27 Sep 2014 18:23:24 +0200
+Subject: [PATCH] Only cleanup priv->shd.statistics if created
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+It is possible that the statistics array was never created and
+dereferencing it may case a segfault.
+
+BUG: 1147156
+Change-Id: If905457ba985add62c3ed543bced1313640af762
+Signed-off-by: Tiziano Müller <tiziano.mueller@stepping-stone.ch>
+---
+ xlators/cluster/afr/src/afr-common.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/xlators/cluster/afr/src/afr-common.c b/xlators/cluster/afr/src/afr-common.c
+index 4ca81e8..389031e 100644
+--- a/xlators/cluster/afr/src/afr-common.c
++++ b/xlators/cluster/afr/src/afr-common.c
+@@ -4615,13 +4615,16 @@ afr_priv_destroy (afr_private_t *priv)
+         if (priv->shd.split_brain)
+                 eh_destroy (priv->shd.split_brain);
+ 
+-        for (i = 0; i < priv->child_count; i++)
++        if (priv->shd.statistics)
+         {
+-                if (priv->shd.statistics[i])
+-                        eh_destroy (priv->shd.statistics[i]);
+-        }
++                for (i = 0; i < priv->child_count; i++)
++                {
++                        if (priv->shd.statistics[i])
++                                eh_destroy (priv->shd.statistics[i]);
++                }
+ 
+-        GF_FREE (priv->shd.statistics);
++                GF_FREE (priv->shd.statistics);
++        }
+ 
+         GF_FREE (priv->shd.crawl_events);
+ 
+-- 
+2.1.0
+

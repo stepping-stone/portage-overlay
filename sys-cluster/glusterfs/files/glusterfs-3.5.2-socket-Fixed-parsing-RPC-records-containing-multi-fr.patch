@@ -1,0 +1,84 @@
+From f206732faafa44b9224f21e6e959b6c3f54e5b34 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Thu, 25 Sep 2014 11:40:08 +0200
+Subject: [PATCH 1/2] socket: Fixed parsing RPC records containing multi
+ fragments
+
+In __socket_proto_state_machine(), when parsing RPC records containing
+multi fragments, just change the state of parsing process, had not
+processed the memory to coalesce the multi fragments.
+
+Cherry picked from commit fb6702b7f8ba19333b7ba4af543d908e3f5e1923:
+> Change-Id: I5583e578603bd7290814a5d26885b31759c73115
+> BUG: 1139598
+> Signed-off-by: Gu Feng <flygoast@126.com>
+> Reviewed-on: http://review.gluster.org/8662
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Niels de Vos <ndevos@redhat.com>
+> Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+> Tested-by: Raghavendra G <rgowdapp@redhat.com>
+
+Change-Id: I5583e578603bd7290814a5d26885b31759c73115
+BUG: 1136221
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/8848
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+---
+ rpc/rpc-transport/socket/src/socket.c | 23 ++++++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/rpc/rpc-transport/socket/src/socket.c b/rpc/rpc-transport/socket/src/socket.c
+index efbc531..7b1beac 100644
+--- a/rpc/rpc-transport/socket/src/socket.c
++++ b/rpc/rpc-transport/socket/src/socket.c
+@@ -375,10 +375,11 @@ __socket_cached_read (rpc_transport_t *this, struct iovec *opvector, int opcount
+ 		/* first call after passing SP_STATE_READING_FRAGHDR */
+ 		in->ra_max = min (RPC_FRAGSIZE (in->fraghdr), GF_SOCKET_RA_MAX);
+ 		/* Note that the in->iobuf is the primary iobuf into which
+-		   headers are read into. By using this itself as our
++		   headers are read into, and in->frag.fragcurrent points to
++ 		   some position in the buffer. By using this itself as our
+ 		   read-ahead cache, we can avoid memory copies in iov_load
+ 		*/
+-		in->ra_buf = iobuf_ptr (in->iobuf);
++		in->ra_buf = in->frag.fragcurrent;
+ 	}
+ 
+ 	/* fill read-ahead */
+@@ -1986,9 +1987,22 @@ __socket_proto_state_machine (rpc_transport_t *this,
+                                 goto out;
+                         }
+ 
++                        if (in->iobuf == NULL) {
++                            /* first fragment */
++                            frag->fragcurrent = iobuf_ptr (iobuf);
++                        } else {
++                            /* second or further fragment */
++                            memcpy(iobuf_ptr (iobuf), iobuf_ptr (in->iobuf),
++                               in->total_bytes_read - RPC_FRAGSIZE(in->fraghdr));
++                            iobuf_unref (in->iobuf);
++                            frag->fragcurrent = (char *) iobuf_ptr (iobuf) +
++                                in->total_bytes_read - RPC_FRAGSIZE(in->fraghdr);
++                            frag->pending_vector->iov_base = frag->fragcurrent;
++                            in->pending_vector = frag->pending_vector;
++                        }
++
+                         in->iobuf = iobuf;
+                         in->iobuf_size = 0;
+-                        frag->fragcurrent = iobuf_ptr (iobuf);
+                         in->record_state = SP_STATE_READING_FRAG;
+                         /* fall through */
+ 
+@@ -2003,6 +2017,9 @@ __socket_proto_state_machine (rpc_transport_t *this,
+                         frag->bytes_read = 0;
+ 
+                         if (!RPC_LASTFRAG (in->fraghdr)) {
++                                in->pending_vector = in->vector;
++                                in->pending_vector->iov_base = &in->fraghdr;
++                                in->pending_vector->iov_len = sizeof(in->fraghdr);
+                                 in->record_state = SP_STATE_READING_FRAGHDR;
+                                 break;
+                         }
+-- 
+2.1.0
+
