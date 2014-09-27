@@ -6,6 +6,8 @@ EAPI=5
 
 PYTHON_COMPAT=( python2_7 )
 
+inherit distutils-r1
+
 DESCRIPTION="Admin tool to aid in the recovery of split-brain file entries"
 HOMEPAGE="https://github.com/joejulian/glusterfs-splitbrain
 	http://joejulian.name/blog/glusterfs-split-brain-recovery-made-easy/"
