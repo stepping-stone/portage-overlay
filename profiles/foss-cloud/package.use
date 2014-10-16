@@ -22,3 +22,6 @@ app-portage/layman git
 dev-vcs/git -gpg
 
 sys-apps/sst-provisioning kvm-backup
+
+# Enable SASL authentication for postfix nullmailer
+mail-mta/postfix -pam sasl
