@@ -1,5 +1,6 @@
-app-emulation/libvirt json libvirtd macvtap nfs numa nls pcap qemu sasl virt-network
+app-emulation/libvirt json glusterfs libvirtd macvtap nfs numa nls pcap qemu sasl virt-network
 app-emulation/qemu aio -alsa curl -fdt glusterfs ncurses numa python sasl smartcard spice tci threads tls usbredir -vde virtfs vhost-net xattr xfs
+net-dns/dnsmasq script
 
 # The smartcard flag here is only for the client
 app-emulation/spice -client -gui -smartcard sasl 
