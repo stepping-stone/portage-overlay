@@ -47,3 +47,4 @@ dev-php/PHP-Easy-Report amd64
 net-misc/iperf amd64
 
 sys-block/arcconf amd64
+app-admin/mcelog amd64
