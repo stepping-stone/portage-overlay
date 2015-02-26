@@ -39,7 +39,7 @@ RDEPEND="cifs? ( net-fs/cifs-utils )
 	mail-mta/postfix
 	>=app-misc/fc-misc-scripts-1.3.0
 	~net-nds/sst-ldap-schemas-1.2.16
-	>=sys-apps/fc-node-integration-1.2.18.11
+	>=sys-apps/fc-node-integration-1.2.18.12
 	>=sys-apps/fc-prov-backup-kvm-1.0.11.6
 	~x11-themes/fc-artwork-1.0.4
 	>=www-apps/vm-manager-1.2.18.20
