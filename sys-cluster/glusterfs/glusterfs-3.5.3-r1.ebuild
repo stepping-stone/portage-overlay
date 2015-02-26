@@ -158,7 +158,7 @@ src_install() {
 	fi
 
 	newinitd "${FILESDIR}/${PN}-r1.initd" glusterfsd
-	newinitd "${FILESDIR}/glusterd-r1.initd" glusterd
+	newinitd "${FILESDIR}/glusterd-r2.initd" glusterd
 	newconfd "${FILESDIR}/${PN}.confd" glusterfsd
 
 	keepdir /var/log/${PN}
