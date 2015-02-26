@@ -1,0 +1,52 @@
+From 2de7f7c1e8da083d37b3fb4f5004750ae09d9e38 Mon Sep 17 00:00:00 2001
+From: Nithya Balachandran <nbalacha@redhat.com>
+Date: Tue, 11 Nov 2014 22:06:56 +0530
+Subject: [PATCH 07/25] Cluster/DHT : Fixed crash due to null deref
+
+A lookup on a linkto file whose trusted.glusterfs.dht.linkto
+xattr points to a subvol that is not part of the volume
+can cause the brick process to segfault due to a null dereference.
+Modified to check for a non-null value before attempting to access
+the variable.
+
+Change-Id: Ie8f9df058f842cfc0c2b52a8f147e557677386fa
+BUG: 1162767
+BUG:1162767
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/9034
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: venkatesh somyajulu <vsomyaju@redhat.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+(cherry picked from commit 0da374020c17256141fb3971ae792b62097d72df)
+Signed-off-by: Nithya Balachandran <nbalacha@redhat.com>
+Reviewed-on: http://review.gluster.org/9099
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/dht/src/dht-common.c | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-common.c b/xlators/cluster/dht/src/dht-common.c
+index ca15f0d..7c93f09 100644
+--- a/xlators/cluster/dht/src/dht-common.c
++++ b/xlators/cluster/dht/src/dht-common.c
+@@ -1164,13 +1164,14 @@ dht_lookup_everywhere_done (call_frame_t *frame, xlator_t *this)
+                                local->skip_unlink.handle_valid_link = _gf_false;
+ 
+                                gf_log (this->name, GF_LOG_DEBUG,
+-                                       "Linkto file found on hashed subvol"
++                                       "Linkto file found on hashed subvol "
+                                        "and data file found on cached "
+                                        "subvolume. But linkto points to "
+                                        "different cached subvolume (%s) "
+                                        "path %s",
+-                                       local->skip_unlink.hash_links_to->name,
+-                                       local->loc.path);
++                                       (local->skip_unlink.hash_links_to ?
++                                       local->skip_unlink.hash_links_to->name :
++                                       " <nil>"), local->loc.path);
+ 
+                                if (local->skip_unlink.opend_fd_count == 0) {
+ 
+-- 
+2.2.1
+

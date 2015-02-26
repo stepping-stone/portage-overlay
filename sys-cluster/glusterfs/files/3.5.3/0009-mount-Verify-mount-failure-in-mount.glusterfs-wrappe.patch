@@ -1,0 +1,45 @@
+From ba789252fca41f69fc8d23e1cb248d3c99a8bcfa Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Fri, 12 Dec 2014 11:47:38 +0100
+Subject: [PATCH 09/25] mount: Verify mount failure in mount.glusterfs wrapper.
+
+The result of mount command execution is not checked properly, thus
+no proper message given for the end user. This patch fix the same.
+
+Cherry picked from commit 76b72680017c836eff8805ea0339f7827ba3e561:
+> Bug Id: 1128165
+> Change-Id: I3882e34e840ed15b5ce48ed5e1ad51208e2be913
+> Signed-off-by: Humble Chirammal <hchiramm@redhat.com>
+> Reviewed-on: http://review.gluster.org/8438
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Niels de Vos <ndevos@redhat.com>
+
+BUG: 1173515
+Change-Id: I3882e34e840ed15b5ce48ed5e1ad51208e2be913
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/9271
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Vijay Bellur <vbellur@redhat.com>
+---
+ xlators/mount/fuse/utils/mount.glusterfs.in | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/xlators/mount/fuse/utils/mount.glusterfs.in b/xlators/mount/fuse/utils/mount.glusterfs.in
+index c5cba10..e41f1ad 100755
+--- a/xlators/mount/fuse/utils/mount.glusterfs.in
++++ b/xlators/mount/fuse/utils/mount.glusterfs.in
+@@ -267,6 +267,11 @@ start_glusterfs ()
+     cmd_line=$(echo "$cmd_line $mount_point");
+     err=0;
+     $cmd_line;
++    if [ $? -ne 0 ]; then
++        echo "Mount failed. Please check the log file for more details."
++        exit 1;
++    fi
++
+ 
+ 
+     inode=$( ${getinode} $mount_point 2>/dev/null);
+-- 
+2.2.1
+

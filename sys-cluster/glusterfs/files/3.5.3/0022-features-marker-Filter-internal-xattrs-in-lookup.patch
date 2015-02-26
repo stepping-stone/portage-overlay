@@ -1,0 +1,573 @@
+From 6e4e21c689c2e4b96a564afb2f0a3972e7829a53 Mon Sep 17 00:00:00 2001
+From: Pranith Kumar K <pkarampu@redhat.com>
+Date: Thu, 6 Nov 2014 10:37:06 +0530
+Subject: [PATCH 22/25] features/marker: Filter internal xattrs in lookup
+
+        Backport of http://review.gluster.com/9061
+
+Afr should ignore quota-size-key as part of self-heal
+but should heal quota-limit key.
+
+BUG: 1162230
+Change-Id: I639cfabbc44468da29914096afc7e2eca1ff1292
+Signed-off-by: Pranith Kumar K <pkarampu@redhat.com>
+Reviewed-on: http://review.gluster.org/9091
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Ravishankar N <ravishankar@redhat.com>
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Reviewed-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ libglusterfs/src/dict.c                          |  45 ++++++++
+ libglusterfs/src/dict.h                          |  13 +++
+ tests/bugs/afr-quota-xattr-mdata-heal.t          | 138 +++++++++++++++++++++++
+ xlators/cluster/afr/src/afr-common.c             |   6 +-
+ xlators/cluster/afr/src/afr-self-heal-metadata.c |  34 +++---
+ xlators/cluster/afr/src/afr.h                    |   3 +
+ xlators/features/marker/src/marker.c             | 121 ++++++++++++++------
+ 7 files changed, 305 insertions(+), 55 deletions(-)
+ create mode 100644 tests/bugs/afr-quota-xattr-mdata-heal.t
+
+diff --git a/libglusterfs/src/dict.c b/libglusterfs/src/dict.c
+index 065990b..f690b29 100644
+--- a/libglusterfs/src/dict.c
++++ b/libglusterfs/src/dict.c
+@@ -1135,6 +1135,51 @@ dict_foreach (dict_t *dict,
+    +n = n number of matches
+ */
+ int
++dict_foreach_match (dict_t *dict,
++             gf_boolean_t (*match)(dict_t *this,
++                                char *key,
++                                data_t *value,
++                                void *mdata),
++             void *match_data,
++             int (*action)(dict_t *this,
++                                char *key,
++                                data_t *value,
++                                void *adata),
++              void *action_data)
++{
++        if (!dict || !match || !action) {
++                gf_log_callingfn ("dict", GF_LOG_WARNING,
++                                  "dict|match|action is NULL");
++                return -1;
++        }
++
++        int          ret   = -1;
++        int          count = 0;
++        data_pair_t *pairs = NULL;
++        data_pair_t *next  = NULL;
++
++        pairs = dict->members_list;
++        while (pairs) {
++                next = pairs->next;
++                if (match (dict, pairs->key, pairs->value, match_data)) {
++                        ret = action (dict, pairs->key, pairs->value,
++                                      action_data);
++                        if (ret < 0)
++                                return ret;
++                        count++;
++                }
++                pairs = next;
++        }
++
++        return count;
++}
++
++/* return values:
++   -1 = failure,
++    0 = no matches found,
++   +n = n number of matches
++*/
++int
+ dict_foreach_fnmatch (dict_t *dict, char *pattern,
+                       int (*fn)(dict_t *this,
+                                 char *key,
+diff --git a/libglusterfs/src/dict.h b/libglusterfs/src/dict.h
+index a92fd2c..5f9e66e 100644
+--- a/libglusterfs/src/dict.h
++++ b/libglusterfs/src/dict.h
+@@ -177,6 +177,19 @@ int dict_foreach_fnmatch (dict_t *dict, char *pattern,
+                                     void *data),
+                           void *data);
+ 
++int
++dict_foreach_match (dict_t *dict,
++             gf_boolean_t (*match)(dict_t *this,
++                                char *key,
++                                data_t *value,
++                                void *mdata),
++             void *match_data,
++             int (*action)(dict_t *this,
++                                char *key,
++                                data_t *value,
++                                void *adata),
++              void *action_data);
++
+ int dict_null_foreach_fn (dict_t *d, char *k,
+                           data_t *v, void *tmp);
+ int dict_remove_foreach_fn (dict_t *d, char *k,
+diff --git a/tests/bugs/afr-quota-xattr-mdata-heal.t b/tests/bugs/afr-quota-xattr-mdata-heal.t
+new file mode 100644
+index 0000000..5291c46
+--- /dev/null
++++ b/tests/bugs/afr-quota-xattr-mdata-heal.t
+@@ -0,0 +1,138 @@
++#!/bin/bash
++
++. $(dirname $0)/../include.rc
++. $(dirname $0)/../volume.rc
++
++cleanup;
++TEST glusterd
++TEST pidof glusterd
++TEST $CLI volume create $V0 replica 2 $H0:$B0/${V0}{0,1}
++TEST $CLI volume start $V0
++TEST glusterfs --volfile-id=/$V0 --volfile-server=$H0 $M0 --attribute-timeout=0 --entry-timeout=0
++TEST $CLI volume quota $V0 enable
++TEST $CLI volume quota $V0 limit-usage / 1MB
++TEST mkdir $M0/d
++TEST $CLI volume quota $V0 limit-usage /d 1MB
++TEST touch $M0/d/a
++echo abc > $M0/d/a
++#Set the acl xattrs directly on backend, for some reason on mount it gives error
++acl_access_val="0x0200000001000600ffffffff04000400ffffffff10000400ffffffff20000400ffffffff"
++acl_file_val="0x0000000400000001ffffffff0006000000000004ffffffff0004000000000010ffffffff0004000000000020ffffffff00040000"
++TEST setfattr -n system.posix_acl_access -v $acl_access_val $B0/${V0}0/d
++TEST setfattr -n trusted.SGI_ACL_FILE -v $acl_file_val $B0/${V0}0/d
++TEST setfattr -n system.posix_acl_access -v $acl_access_val $B0/${V0}1/d
++TEST setfattr -n trusted.SGI_ACL_FILE -v $acl_file_val $B0/${V0}1/d
++TEST setfattr -n trusted.foo -v "baz" $M0/d
++TEST setfattr -n trusted.foo -v "baz" $M0/d/a
++TEST setfattr -n trusted.foo1 -v "baz1" $M0/d
++TEST setfattr -n trusted.foo1 -v "baz1" $M0/d/a
++TEST setfattr -n trusted.foo3 -v "unchanged" $M0/d
++TEST setfattr -n trusted.foo3 -v "unchanged" $M0/d/a
++
++TEST kill_brick $V0 $H0 $B0/${V0}0
++#Induce metadata self-heal
++TEST setfattr -n trusted.foo -v "bar" $M0/d
++TEST setfattr -n trusted.foo -v "bar" $M0/d/a
++TEST setfattr -x trusted.foo1 $M0/d
++TEST setfattr -x trusted.foo1 $M0/d/a
++TEST setfattr -n trusted.foo2 -v "bar2" $M0/d
++TEST setfattr -n trusted.foo2 -v "bar2" $M0/d/a
++d_quota_contri=$(getfattr -d -m . -e hex $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.*.contri")
++d_quota_dirty=$(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.dirty")
++d_quota_limit=$(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.limit-set")
++d_quota_size=$(getfattr -d -m . -e hex   $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.size")
++
++a_pgfid=$(getfattr -d -m . -e hex   $B0/${V0}1/d/a | grep -E "trusted.pgfid.")
++
++#Change internal xattrs in the backend, later check that they are not healed
++TEST setfattr -n trusted.glusterfs.quota.00000000-0000-0000-0000-000000000001.contri -v 0x0000000000000400 $B0/${V0}0/d
++TEST setfattr -n trusted.glusterfs.quota.dirty -v 0x0000000000000400 $B0/${V0}0/d
++TEST setfattr -n trusted.glusterfs.quota.limit-set -v 0x0000000000000400 $B0/${V0}0/d #This will be healed, this is external xattr
++TEST setfattr -n trusted.glusterfs.quota.size -v 0x0000000000000400 $B0/${V0}0/d
++TEST setfattr -n $(echo $a_pgfid | cut -f1 -d'=') -v "orphan" $B0/${V0}0/d/a
++
++TEST $CLI volume set $V0 cluster.self-heal-daemon on
++TEST $CLI volume start $V0 force
++EXPECT_WITHIN $PROCESS_UP_TIMEOUT "Y" glustershd_up_status
++EXPECT_WITHIN $PROCESS_UP_TIMEOUT "1" afr_child_up_status_in_shd $V0 0
++EXPECT_WITHIN $HEAL_TIMEOUT "0" afr_get_pending_heal_count $V0
++
++#Check external xattrs match
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo)
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo)
++TEST ! getfattr -n trusted.foo1 $B0/${V0}0/d
++TEST ! getfattr -n trusted.foo1 $B0/${V0}0/d/a
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo3)
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo3)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo2)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo2)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m . -e hex  $B0/${V0}0/d | grep "trusted.glusterfs.quota.limit-set")
++
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo)
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo)
++TEST ! getfattr -n trusted.foo1 $B0/${V0}1/d
++TEST ! getfattr -n trusted.foo1 $B0/${V0}1/d/a
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo3)
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo3)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo2)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo2)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep "trusted.glusterfs.quota.limit-set")
++
++#Test that internal xattrs on B0 are not healed
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.00000000-0000-0000-0000-000000000001.contri)
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.dirty)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.limit-set) #This will be healed, this is external xattr
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.size)
++EXPECT "$acl_access_val" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep system.posix_acl_access)
++EXPECT "$acl_file_val" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.SGI_ACL_FILE)
++EXPECT "orphan" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep $(echo $a_pgfid | cut -f1 -d'='))
++
++#Test that xattrs didn't go bad in source
++EXPECT "$d_quota_contri" echo $(getfattr -d -m . -e hex $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.*.contri")
++EXPECT "$d_quota_dirty"  echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.dirty")
++EXPECT "$d_quota_limit"  echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.limit-set")
++EXPECT "$d_quota_size"   echo $(getfattr -d -m . -e hex   $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.size")
++EXPECT "$a_pgfid" echo $(getfattr -d -m . -e hex   $B0/${V0}1/d/a | grep -E "trusted.pgfid.")
++EXPECT "$acl_access_val" echo $(getfattr -d -m. -e hex $B0/${V0}1/d | grep system.posix_acl_access)
++EXPECT "$acl_file_val" echo $(getfattr -d -m. -e hex $B0/${V0}1/d | grep trusted.SGI_ACL_FILE)
++
++#Do a lookup and it shouldn't trigger metadata self-heal and heal xattrs
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo)
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo)
++TEST ! getfattr -n trusted.foo1 $B0/${V0}0/d
++TEST ! getfattr -n trusted.foo1 $B0/${V0}0/d/a
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo3)
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo3)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}0/d | grep trusted.foo2)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep trusted.foo2)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m . -e hex  $B0/${V0}0/d | grep "trusted.glusterfs.quota.limit-set")
++
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo)
++EXPECT "bar" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo)
++TEST ! getfattr -n trusted.foo1 $B0/${V0}1/d
++TEST ! getfattr -n trusted.foo1 $B0/${V0}1/d/a
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo3)
++EXPECT "unchanged" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo3)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}1/d | grep trusted.foo2)
++EXPECT "bar2" echo $(getfattr -d -m. -e text $B0/${V0}1/d/a | grep trusted.foo2)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep "trusted.glusterfs.quota.limit-set")
++
++#Test that internal xattrs on B0 are not healed
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.00000000-0000-0000-0000-000000000001.contri)
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.dirty)
++EXPECT "$d_quota_limit" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.limit-set) #This will be healed, this is external xattr
++EXPECT 0x0000000000000400 echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.glusterfs.quota.size)
++EXPECT "orphan" echo $(getfattr -d -m. -e text $B0/${V0}0/d/a | grep $(echo $a_pgfid | cut -f1 -d'='))
++
++#Test that xattrs didn't go bad in source
++EXPECT "$d_quota_contri" echo $(getfattr -d -m . -e hex $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.*.contri")
++EXPECT "$d_quota_dirty"  echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.dirty")
++EXPECT "$d_quota_limit"  echo $(getfattr -d -m . -e hex  $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.limit-set")
++EXPECT "$d_quota_size"   echo $(getfattr -d -m . -e hex   $B0/${V0}1/d | grep -E "trusted.glusterfs.quota.size")
++EXPECT "$a_pgfid" echo $(getfattr -d -m . -e hex   $B0/${V0}1/d/a | grep -E "trusted.pgfid.")
++
++EXPECT "$acl_access_val" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep system.posix_acl_access)
++EXPECT "$acl_file_val" echo $(getfattr -d -m. -e hex $B0/${V0}0/d | grep trusted.SGI_ACL_FILE)
++EXPECT "$acl_access_val" echo $(getfattr -d -m. -e hex $B0/${V0}1/d | grep system.posix_acl_access)
++EXPECT "$acl_file_val" echo $(getfattr -d -m. -e hex $B0/${V0}1/d | grep trusted.SGI_ACL_FILE)
++cleanup
+diff --git a/xlators/cluster/afr/src/afr-common.c b/xlators/cluster/afr/src/afr-common.c
+index 609f196..561b74c 100644
+--- a/xlators/cluster/afr/src/afr-common.c
++++ b/xlators/cluster/afr/src/afr-common.c
+@@ -1847,8 +1847,8 @@ static char *afr_ignore_xattrs[] = {
+ };
+ 
+ 
+-static  gf_boolean_t
+-afr_lookup_xattr_ignorable (char *key)
++gf_boolean_t
++afr_is_xattr_ignorable (char *key)
+ {
+         int i = 0;
+ 
+@@ -1867,7 +1867,7 @@ xattr_is_equal (dict_t *this, char *key1, data_t *value1, void *data)
+         dict_t *xattr2 = (dict_t *)data;
+         data_t *value2 = NULL;
+ 
+-        if (afr_lookup_xattr_ignorable (key1))
++        if (afr_is_xattr_ignorable (key1))
+                 return 0;
+ 
+         value2 = dict_get (xattr2, key1);
+diff --git a/xlators/cluster/afr/src/afr-self-heal-metadata.c b/xlators/cluster/afr/src/afr-self-heal-metadata.c
+index 829a8c3..d158804 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-metadata.c
++++ b/xlators/cluster/afr/src/afr-self-heal-metadata.c
+@@ -39,6 +39,18 @@
+ #include "afr-self-heal.h"
+ #include "afr-self-heal-common.h"
+ 
++static gf_boolean_t
++_afr_ignorable_key_match (dict_t *d, char *k, data_t *val, void *mdata)
++{
++        return afr_is_xattr_ignorable (k);
++}
++
++void
++afr_delete_ignorable_xattrs (dict_t *xattr)
++{
++        dict_foreach_match (xattr, _afr_ignorable_key_match, NULL,
++                            dict_remove_foreach_fn, NULL);
++}
+ 
+ int
+ afr_sh_metadata_done (call_frame_t *frame, xlator_t *this)
+@@ -239,22 +251,6 @@ afr_sh_removexattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         return 0;
+ }
+ 
+-inline void
+-afr_prune_special_keys (dict_t *xattr_dict)
+-{
+-        dict_del (xattr_dict, GF_SELINUX_XATTR_KEY);
+-}
+-
+-inline void
+-afr_prune_pending_keys (dict_t *xattr_dict, afr_private_t *priv)
+-{
+-        int i = 0;
+-
+-        for (; i < priv->child_count; i++) {
+-                dict_del (xattr_dict, priv->pending_key[i]);
+-        }
+-}
+-
+ int
+ afr_sh_getxattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                      int32_t op_ret, int32_t op_errno, dict_t *xattr,
+@@ -273,9 +269,7 @@ afr_sh_getxattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                 goto out;
+         }
+ 
+-        afr_prune_pending_keys (xattr, priv);
+-
+-        afr_prune_special_keys (xattr);
++        afr_delete_ignorable_xattrs (xattr);
+ 
+         i = (long) cookie;
+ 
+@@ -396,7 +390,7 @@ afr_sh_metadata_getxattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ 
+                 afr_sh_metadata_sync (frame, this, NULL);
+         } else {
+-                afr_prune_pending_keys (xattr, priv);
++                afr_delete_ignorable_xattrs (xattr);
+                 afr_sh_metadata_sync (frame, this, xattr);
+         }
+ 
+diff --git a/xlators/cluster/afr/src/afr.h b/xlators/cluster/afr/src/afr.h
+index aa42513..e704dc2 100644
+--- a/xlators/cluster/afr/src/afr.h
++++ b/xlators/cluster/afr/src/afr.h
+@@ -1249,4 +1249,7 @@ gf_boolean_t
+ afr_can_start_metadata_self_heal (afr_local_t *local, afr_private_t *priv);
+ void
+ afr_remove_eager_lock_stub (afr_local_t *local);
++
++gf_boolean_t
++afr_is_xattr_ignorable (char *key);
+ #endif /* __AFR_H__ */
+diff --git a/xlators/features/marker/src/marker.c b/xlators/features/marker/src/marker.c
+index 8c3789f..40777d5 100644
+--- a/xlators/features/marker/src/marker.c
++++ b/xlators/features/marker/src/marker.c
+@@ -23,8 +23,25 @@
+ #include "byte-order.h"
+ #include "syncop.h"
+ 
++#include <fnmatch.h>
++
+ #define _GF_UID_GID_CHANGED 1
+ 
++/*Ideally external xattrs should be same across the fops. But for backward
++ * compatibility reasons getxattr should not expose QUOTA_SIZE_KEY to prevent
++ * older afr healing it. So 3.6.x and 3.5.x should have different external
++ * xattrs for lookup and getxattr*/
++static char   *quota_lookup_external_xattrs[] = {
++        QUOTA_SIZE_KEY,
++        QUOTA_LIMIT_KEY,
++        NULL,
++};
++
++static char   *quota_getxattr_external_xattrs[] = {
++        QUOTA_LIMIT_KEY,
++        NULL,
++};
++
+ void
+ fini (xlator_t *this);
+ 
+@@ -277,17 +294,52 @@ out:
+         return ret;
+ }
+ 
++static gf_boolean_t
++_is_quota_internal_xattr (dict_t *d, char *k, data_t *v, void *data)
++{
++        int     i = 0;
++        char    **external_xattrs = data;
++
++        for (i = 0; external_xattrs && external_xattrs[i]; i++) {
++                if (strcmp (k, external_xattrs[i]) == 0)
++                        return _gf_false;
++        }
++
++        if (fnmatch ("trusted.glusterfs.quota*", k, 0) == 0)
++                return _gf_true;
++
++        /* It would be nice if posix filters pgfid xattrs. But since marker
++         * also takes up responsibility to clean these up, adding the filtering
++         * here (Check 'quota_xattr_cleaner')
++         */
++        if (fnmatch (PGFID_XATTR_KEY_PREFIX"*", k, 0) == 0)
++                return _gf_true;
++
++        return _gf_false;
++}
++
++static void
++marker_filter_internal_xattrs (xlator_t *this, dict_t *xattrs,
++                               char **external_xattrs)
++{
++        marker_conf_t *priv   = NULL;
++        char         **ext    = NULL;
++
++        priv = this->private;
++        if (priv->feature_enabled & GF_QUOTA)
++                ext = external_xattrs;
++
++        dict_foreach_match (xattrs, _is_quota_internal_xattr, ext,
++                            dict_remove_foreach_fn, NULL);
++        return;
++}
++
+ int32_t
+ marker_getxattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                      int32_t op_ret, int32_t op_errno, dict_t *dict,
+                      dict_t *xdata)
+ {
+-        int            ret    = 0;
+-        char           *src   = NULL;
+-        char           *dst   = NULL;
+-        int            len    = 0;
+         marker_local_t *local = NULL;
+-
+         local = frame->local;
+ 
+ 
+@@ -307,37 +359,16 @@ marker_getxattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                    is changed. So let that xattr be healed by other xlators
+                    properly whenever directory healing is done.
+                 */
+-                ret = dict_get_ptr_and_len (dict, QUOTA_LIMIT_KEY,
+-                                            (void **)&src, &len);
+-                if (ret) {
+-                        gf_log (this->name, GF_LOG_DEBUG, "dict_get on %s "
+-                                "failed", QUOTA_LIMIT_KEY);
+-                } else {
+-                        dst = GF_CALLOC (len, sizeof (char), gf_common_mt_char);
+-                        if (dst)
+-                                memcpy (dst, src, len);
+-                }
+-
+                 /*
+                  * Except limit-set xattr, rest of the xattrs are maintained
+                  * by quota xlator. Don't expose them to other xlators.
+                  * This filter makes sure quota xattrs are not healed as part of
+                  * metadata self-heal
+                  */
+-                GF_REMOVE_INTERNAL_XATTR ("trusted.glusterfs.quota*", dict);
+-                if (!ret && IA_ISDIR (local->loc.inode->ia_type) && dst) {
+-                        ret = dict_set_dynptr (dict, QUOTA_LIMIT_KEY,
+-                                               dst, len);
+-                        if (ret)
+-                                gf_log (this->name, GF_LOG_WARNING, "setting "
+-                                        "key %s failed", QUOTA_LIMIT_KEY);
+-                        else
+-                                dst = NULL;
+-                }
++                marker_filter_internal_xattrs (frame->this, dict,
++                                               quota_getxattr_external_xattrs);
+         }
+ 
+-        GF_FREE (dst);
+-
+         frame->local = NULL;
+         STACK_UNWIND_STRICT (getxattr, frame, op_ret, op_errno, dict, xdata);
+         marker_local_unref (local);
+@@ -2592,6 +2623,15 @@ err:
+         return 0;
+ }
+ 
++static gf_boolean_t
++__has_quota_xattrs (dict_t *xattrs)
++{
++        if (dict_foreach_match (xattrs, _is_quota_internal_xattr, NULL,
++                                dict_null_foreach_fn, NULL) > 0)
++                return _gf_true;
++
++        return _gf_false;
++}
+ 
+ int32_t
+ marker_lookup_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+@@ -2600,18 +2640,33 @@ marker_lookup_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ {
+         marker_conf_t  *priv    = NULL;
+         marker_local_t *local   = NULL;
++        dict_t         *xattrs  = NULL;
++        priv = this->private;
+ 
+         if (op_ret == -1) {
+                 gf_log (this->name, GF_LOG_TRACE, "lookup failed with %s",
+                         strerror (op_errno));
+         }
+ 
++        if (dict && __has_quota_xattrs (dict)) {
++                xattrs = dict_copy_with_ref (dict, NULL);
++                if (!xattrs) {
++                        op_ret = -1;
++                        op_errno = ENOMEM;
++                } else {
++                        marker_filter_internal_xattrs (this, xattrs,
++                                                  quota_lookup_external_xattrs);
++                }
++        } else if (dict) {
++                xattrs = dict_ref (dict);
++        }
++
+         local = (marker_local_t *) frame->local;
+ 
+         frame->local = NULL;
+ 
+         STACK_UNWIND_STRICT (lookup, frame, op_ret, op_errno, inode, buf,
+-                             dict, postparent);
++                             xattrs, postparent);
+ 
+         if (op_ret == -1 || local == NULL)
+                 goto out;
+@@ -2625,14 +2680,14 @@ marker_lookup_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                 uuid_copy (local->loc.gfid, buf->ia_gfid);
+ 
+ 
+-        priv = this->private;
+-
+         if (priv->feature_enabled & GF_QUOTA) {
+                 mq_xattr_state (this, &local->loc, dict, *buf);
+         }
+ 
+ out:
+         marker_local_unref (local);
++        if (xattrs)
++                dict_unref (xattrs);
+ 
+         return 0;
+ }
+@@ -2651,6 +2706,8 @@ marker_lookup (call_frame_t *frame, xlator_t *this,
+                 goto wind;
+ 
+         local = mem_get0 (this->local_pool);
++        if (local == NULL)
++                goto err;
+ 
+         MARKER_INIT_LOCAL (frame, local);
+ 
+@@ -2665,7 +2722,7 @@ wind:
+                     FIRST_CHILD(this)->fops->lookup, loc, xattr_req);
+         return 0;
+ err:
+-        STACK_UNWIND_STRICT (lookup, frame, -1, 0, NULL, NULL, NULL, NULL);
++        STACK_UNWIND_STRICT (lookup, frame, -1, ENOMEM, NULL, NULL, NULL, NULL);
+ 
+         return 0;
+ }
+-- 
+2.2.1
+

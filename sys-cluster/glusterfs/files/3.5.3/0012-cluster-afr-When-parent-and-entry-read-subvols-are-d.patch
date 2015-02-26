@@ -1,0 +1,265 @@
+From bb2df4e63fa8a5d65f18b4a5efc757e8d475fbff Mon Sep 17 00:00:00 2001
+From: Krutika Dhananjay <kdhananj@redhat.com>
+Date: Thu, 22 Jan 2015 17:02:20 +0530
+Subject: [PATCH 12/25] cluster/afr: When parent and entry read subvols are
+ different, set entry->inode to NULL
+
+        Backport of: http://review.gluster.org/#/c/9477
+
+That way a lookup would be forced on the entry, and its attributes will
+always be selected from its read subvol.
+
+Additionally, directory write fops as well as LOOKUP have been made to
+unwind parent attributes from parent's read child in AFR.
+
+Change-Id: I9fca49fa91cc3a65f53db855fedb90b08f1ca7f4
+BUG: 1186121
+Signed-off-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-on: http://review.gluster.org/9504
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+Tested-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+---
+ xlators/cluster/afr/src/afr-common.c    | 65 ++++++++++++++++++++++++++++++++-
+ xlators/cluster/afr/src/afr-dir-read.c  | 20 +++++++++-
+ xlators/cluster/afr/src/afr-dir-write.c | 29 ++++++++++-----
+ xlators/cluster/afr/src/afr.h           | 19 ++++++++++
+ 4 files changed, 121 insertions(+), 12 deletions(-)
+
+diff --git a/xlators/cluster/afr/src/afr-common.c b/xlators/cluster/afr/src/afr-common.c
+index 59b8038..2fd7879 100644
+--- a/xlators/cluster/afr/src/afr-common.c
++++ b/xlators/cluster/afr/src/afr-common.c
+@@ -1188,6 +1188,62 @@ afr_handle_quota_size (afr_local_t *local, xlator_t *this,
+         }
+ }
+ 
++static int
++afr_lookup_select_parent_read_child (xlator_t *this, inode_t *parent,
++                                     afr_local_t *local)
++{
++        int             i                   = 0;
++        int             child_index         = -1;
++        int             par_read_child      = -1;
++        int             par_read_child_iter = -1;
++        int            *fresh_children      = NULL;
++        int            *success_children    = NULL;
++        afr_private_t  *priv                = NULL;
++
++        priv = this->private;
++        success_children = local->cont.lookup.success_children;
++
++        if (!parent)
++                return 0;
++
++        fresh_children = afr_children_create (priv->child_count);
++
++        par_read_child = afr_inode_get_read_ctx (this, parent, fresh_children);
++
++        for (i = 0; i < priv->child_count; i++) {
++                child_index = success_children[i];
++
++                if (child_index == -1)
++                        break;
++
++                if (par_read_child_iter == -1) {
++                        par_read_child_iter = child_index;
++                        continue;
++                }
++
++                if ((par_read_child_iter != par_read_child) && fresh_children &&
++                    (afr_is_child_present (fresh_children, priv->child_count,
++                                           child_index)))
++                        par_read_child_iter = child_index;
++
++                if (child_index == par_read_child)
++                        par_read_child_iter = child_index;
++        }
++
++        /* At the end of the for-loop, the only reason why @par_read_child_iter
++         * could be -1 is when this LOOKUP has failed on all sub-volumes.
++         * So it is okay to send an arbitrary subvolume (0 in this case)
++         * as parent read child.
++         */
++
++        if (par_read_child_iter == -1)
++                par_read_child_iter = 0;
++
++        GF_FREE (fresh_children);
++        return par_read_child_iter;
++
++}
++
+ int
+ afr_lookup_build_response_params (afr_local_t *local, xlator_t *this)
+ {
+@@ -1198,8 +1254,10 @@ afr_lookup_build_response_params (afr_local_t *local, xlator_t *this)
+         int32_t         *sources = NULL;
+         afr_private_t   *priv = NULL;
+         int32_t         read_child = -1;
++        int32_t         par_read_child = -1;
+         int             ret = 0;
+         int             i = 0;
++        inode_t        *parent = NULL;
+ 
+         GF_ASSERT (local);
+ 
+@@ -1207,6 +1265,7 @@ afr_lookup_build_response_params (afr_local_t *local, xlator_t *this)
+         postparent = &local->cont.lookup.postparent;
+         xattr = &local->cont.lookup.xattr;
+         priv = this->private;
++        parent = local->loc.parent;
+ 
+         read_child = afr_inode_get_read_ctx (this, local->cont.lookup.inode,
+                                              local->fresh_children);
+@@ -1239,7 +1298,11 @@ afr_lookup_build_response_params (afr_local_t *local, xlator_t *this)
+                 *xattr = dict_ref (local->cont.lookup.xattrs[read_child]);
+ 
+         *buf = local->cont.lookup.bufs[read_child];
+-        *postparent = local->cont.lookup.postparents[read_child];
++
++        par_read_child = afr_lookup_select_parent_read_child (this, parent,
++                                                              local);
++
++        *postparent = local->cont.lookup.postparents[par_read_child];
+ 
+         if (dict_get (local->xattr_req, QUOTA_SIZE_KEY))
+                 afr_handle_quota_size (local, this, *xattr);
+diff --git a/xlators/cluster/afr/src/afr-dir-read.c b/xlators/cluster/afr/src/afr-dir-read.c
+index 689dd84..d94cb0c 100644
+--- a/xlators/cluster/afr/src/afr-dir-read.c
++++ b/xlators/cluster/afr/src/afr-dir-read.c
+@@ -422,14 +422,32 @@ afr_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+                   int32_t op_ret, int32_t op_errno, gf_dirent_t *entries,
+                   dict_t *xdata)
+ {
+-        afr_local_t     *local = NULL;
++        afr_local_t     *local          = NULL;
++        gf_dirent_t     *entry          = NULL;
++        int              par_read_child = (long) cookie;
++        int32_t          read_child     = -1;
+ 
+         if (op_ret == -1)
+                 goto out;
+ 
+         local = frame->local;
++
+         afr_readdir_filter_trash_dir (entries, local->fd);
+ 
++        list_for_each_entry (entry, &entries->list, list) {
++                if (entry->inode) {
++                        read_child = -1;
++
++                        read_child = afr_inode_get_read_ctx (this, entry->inode,
++                                                             NULL);
++                        if (read_child != par_read_child) {
++                                inode_unref (entry->inode);
++                                entry->inode = NULL;
++                                continue;
++                        }
++                }
++        }
++
+ out:
+         AFR_STACK_UNWIND (readdirp, frame, op_ret, op_errno, entries, NULL);
+         return 0;
+diff --git a/xlators/cluster/afr/src/afr-dir-write.c b/xlators/cluster/afr/src/afr-dir-write.c
+index 3cdec64..f996181 100644
+--- a/xlators/cluster/afr/src/afr-dir-write.c
++++ b/xlators/cluster/afr/src/afr-dir-write.c
+@@ -80,26 +80,35 @@ __dir_entry_fop_common_cbk (call_frame_t *frame, int child_index,
+                             struct iatt *postparent, struct iatt *prenewparent,
+                             struct iatt *postnewparent)
+ {
+-        afr_local_t     *local          = NULL;
++        afr_local_t     *local              = NULL;
++        inode_t         *parent             = NULL;
++        inode_t         *parent2            = NULL;
+ 
+         local = frame->local;
+ 
++        parent = local->loc.parent;
++        parent2 = local->newloc.parent;
++
+         if (afr_fop_failed (op_ret, op_errno))
+                 afr_transaction_fop_failed (frame, this, child_index);
+ 
+         if (op_ret > -1) {
+                 local->op_ret = op_ret;
+ 
++                AFR_UPDATE_PARENT_BUF (parent, this, child_index, local,
++                                       local->cont.dir_fop.preparent,
++                                       local->cont.dir_fop.postparent,
++                                       preparent, postparent);
++
++                AFR_UPDATE_PARENT_BUF (parent2, this, child_index, local,
++                                       local->cont.dir_fop.prenewparent,
++                                       local->cont.dir_fop.postnewparent,
++                                       prenewparent, postnewparent);
++
+                 if ((local->success_count == 0) ||
+                     (child_index == local->read_child_index)) {
+-                        local->cont.dir_fop.preparent      = *preparent;
+-                        local->cont.dir_fop.postparent     = *postparent;
+                         if (buf)
+                                 local->cont.dir_fop.buf            = *buf;
+-                        if (prenewparent)
+-                             local->cont.dir_fop.prenewparent  = *prenewparent;
+-                        if (postnewparent)
+-                             local->cont.dir_fop.postnewparent = *postnewparent;
+                 }
+ 
+                 local->cont.dir_fop.inode = inode;
+@@ -934,8 +943,8 @@ afr_link_unwind (call_frame_t *frame, xlator_t *this)
+                                   local->op_ret, local->op_errno,
+                                   local->cont.dir_fop.inode,
+                                   &local->cont.dir_fop.buf,
+-                                  &local->cont.dir_fop.preparent,
+-                                  &local->cont.dir_fop.postparent,
++                                  &local->cont.dir_fop.prenewparent,
++                                  &local->cont.dir_fop.postnewparent,
+                                   NULL);
+         }
+ 
+@@ -958,7 +967,7 @@ afr_link_wind_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         {
+                 __dir_entry_fop_common_cbk (frame, child_index, this,
+                                             op_ret, op_errno, inode, buf,
+-                                            preparent, postparent, NULL, NULL);
++                                            NULL, NULL, preparent, postparent);
+         }
+         UNLOCK (&frame->lock);
+ 
+diff --git a/xlators/cluster/afr/src/afr.h b/xlators/cluster/afr/src/afr.h
+index 87ad67c..2548900 100644
+--- a/xlators/cluster/afr/src/afr.h
++++ b/xlators/cluster/afr/src/afr.h
+@@ -1195,6 +1195,25 @@ afr_xattr_array_destroy (dict_t **xattr, unsigned int child_count);
+         }                                                               \
+ } while (0)
+ 
++#define AFR_UPDATE_PARENT_BUF(parent, this, child_index, local,             \
++                               dst_preparent, dst_postparent,               \
++                               src_preparent, src_postparent) do {          \
++        int __par_read_child = -1;                                          \
++        if (parent) {                                                       \
++                __par_read_child = afr_inode_get_read_ctx (this, parent,    \
++                                                           NULL);           \
++                if (__par_read_child < 0)                                   \
++                        __par_read_child = local->read_child_index;         \
++                if ((local->success_count == 0) ||                          \
++                    (__par_read_child == child_index)) {                    \
++                        if (src_preparent)                                  \
++                                dst_preparent = *src_preparent;             \
++                        if (src_postparent)                                 \
++                                dst_postparent = *src_postparent;           \
++                }                                                           \
++        }                                                                   \
++} while (0)
++
+ int
+ afr_fd_report_unstable_write (xlator_t *this, fd_t *fd);
+ 
+-- 
+2.2.1
+

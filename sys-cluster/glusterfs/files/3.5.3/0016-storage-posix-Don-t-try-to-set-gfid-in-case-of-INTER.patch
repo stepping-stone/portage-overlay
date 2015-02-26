@@ -1,0 +1,66 @@
+From 10667b43a628af2ce3045126b80763b97fa299e7 Mon Sep 17 00:00:00 2001
+From: Pranith Kumar K <pkarampu@redhat.com>
+Date: Wed, 14 Jan 2015 17:10:41 +0530
+Subject: [PATCH 16/25] storage/posix: Don't try to set gfid in case of
+ INTERNAL-mknod
+
+        Backport of http://review.gluster.org/9446
+
+BUG: 1184528
+Change-Id: I4131baf5cf6f6ca6deb5b4f426b34c980a065a9e
+Signed-off-by: Pranith Kumar K <pkarampu@redhat.com>
+Reviewed-on: http://review.gluster.org/9474
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/storage/posix/src/posix.c | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/xlators/storage/posix/src/posix.c b/xlators/storage/posix/src/posix.c
+index f078c55..deccbb1 100644
+--- a/xlators/storage/posix/src/posix.c
++++ b/xlators/storage/posix/src/posix.c
+@@ -1079,6 +1079,7 @@ posix_mknod (call_frame_t *frame, xlator_t *this,
+         int32_t               nlink_samepgfid = 0;
+         char                 *pgfid_xattr_key = NULL;
+         gf_boolean_t          entry_created   = _gf_false, gfid_set = _gf_false;
++        gf_boolean_t          linked          = _gf_false;
+ 
+         DECLARE_OLD_FS_ID_VAR;
+ 
+@@ -1122,8 +1123,10 @@ posix_mknod (call_frame_t *frame, xlator_t *this,
+                 }
+                 op_ret = posix_create_link_if_gfid_exists (this, uuid_req,
+                                                            real_path);
+-                if (!op_ret)
++                if (!op_ret) {
++                        linked = _gf_true;
+                         goto post_op;
++                }
+         }
+ 
+ real_op:
+@@ -1194,12 +1197,14 @@ ignore:
+                         strerror (errno));
+         }
+ 
+-        op_ret = posix_gfid_set (this, real_path, loc, xdata);
+-        if (op_ret) {
+-                gf_log (this->name, GF_LOG_ERROR,
+-                        "setting gfid on %s failed", real_path);
+-        } else {
+-                gfid_set = _gf_true;
++        if (!linked) {
++                op_ret = posix_gfid_set (this, real_path, loc, xdata);
++                if (op_ret) {
++                        gf_log (this->name, GF_LOG_ERROR,
++                                "setting gfid on %s failed", real_path);
++                } else {
++                        gfid_set = _gf_true;
++                }
+         }
+ 
+         op_ret = posix_pstat (this, NULL, real_path, &stbuf);
+-- 
+2.2.1
+

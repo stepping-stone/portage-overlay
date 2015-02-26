@@ -1,0 +1,57 @@
+From 4b3981d2c9b4cafa24398765b3d0c8a4d45d43b1 Mon Sep 17 00:00:00 2001
+From: Krutika Dhananjay <kdhananj@redhat.com>
+Date: Fri, 16 Jan 2015 14:26:45 +0530
+Subject: [PATCH 13/25] cluster/dht: Fix incorrect updates to parent times
+
+        Backport of: http://review.gluster.org/9457
+
+In directory write FOPs, as far as updates to timestamps associated
+with parent by DHT is concerned, there are three possibilities:
+a) time (in sec) gotten from child of DHT < time (in sec) in inode ctx
+b) time (in sec) gotten from child of DHT = time (in sec) in inode ctx
+c) time (in sec) gotten from child of DHT > time (in sec) in inode ctx
+
+In case (c), for time in nsecs, it is the value returned by DHT's child
+that must be selected. But what DHT_UPDATE_TIME ends up doing is to choose
+the maximum of (time in nsec gotten from DHT's child, time in nsec in inode ctx).
+
+Change-Id: I1388e374c8a2029f3b8919380e68620e7591bde6
+BUG: 1186121
+Signed-off-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-on: http://review.gluster.org/9496
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+Reviewed-by: Shyamsundar Ranganathan <srangana@redhat.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/dht/src/dht-common.h | 11 +++++------
+ 1 file changed, 5 insertions(+), 6 deletions(-)
+
+diff --git a/xlators/cluster/dht/src/dht-common.h b/xlators/cluster/dht/src/dht-common.h
+index b9a696b..d421f29 100644
+--- a/xlators/cluster/dht/src/dht-common.h
++++ b/xlators/cluster/dht/src/dht-common.h
+@@ -417,15 +417,14 @@ typedef enum {
+         } while (0)
+ 
+ #define DHT_UPDATE_TIME(ctx_sec, ctx_nsec, new_sec, new_nsec, inode, post) do {\
+-                int32_t sec = 0;                                        \
+-                sec = new_sec;                                          \
+                 LOCK (&inode->lock);                                    \
+                 {                                                       \
+-                        new_sec = max(new_sec, ctx_sec);                \
+-                        if (sec < new_sec)                              \
+-                                new_nsec = ctx_nsec;                    \
+-                        if (sec == new_sec)                             \
++                        if (ctx_sec == new_sec)                         \
+                                 new_nsec = max (new_nsec, ctx_nsec);    \
++                        else if (ctx_sec > new_sec) {                   \
++                                new_sec = ctx_sec;                      \
++                                new_nsec = ctx_nsec;                    \
++                        }                                               \
+                         if (post) {                                     \
+                                 ctx_sec = new_sec;                      \
+                                 ctx_nsec = new_nsec;                    \
+-- 
+2.2.1
+

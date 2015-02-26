@@ -1,0 +1,86 @@
+From 3242a1f79abd27743da9ff3209be49df5474b4b3 Mon Sep 17 00:00:00 2001
+From: Vijay Bellur <vbellur@redhat.com>
+Date: Fri, 19 Sep 2014 19:08:05 +0530
+Subject: [PATCH 25/25] protocol: Log ENODATA & ENOATTR logs at DEBUG loglevel
+ in removexattr_cbk.
+
+Prevents messages of the following type from being seen by default in the log files:
+
+[2014-09-19 07:57:39.877806] W
+[client-rpc-fops.c:1232:client3_3_removexattr_cbk] 0-<volume_name>-client-0:
+remote operation failed: No data available
+[2014-09-19 07:57:39.877963] W
+[client-rpc-fops.c:1232:client3_3_removexattr_cbk] 0-<volume_name>-client-1:
+remote operation failed: No data available
+
+Change-Id: I3b1a121b0fc272eb772547275bb8085ed19db5a1
+BUG: 1192832
+Signed-off-by: Vijay Bellur <vbellur@redhat.com>
+Reviewed-on: http://review.gluster.org/8781
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Jeff Darcy <jdarcy@redhat.com>
+Reviewed-on: http://review.gluster.org/9655
+---
+ xlators/protocol/client/src/client-rpc-fops.c | 12 +++++++++---
+ xlators/protocol/server/src/server-rpc-fops.c |  8 +++++++-
+ 2 files changed, 16 insertions(+), 4 deletions(-)
+
+diff --git a/xlators/protocol/client/src/client-rpc-fops.c b/xlators/protocol/client/src/client-rpc-fops.c
+index 50d15ec..687ced9 100644
+--- a/xlators/protocol/client/src/client-rpc-fops.c
++++ b/xlators/protocol/client/src/client-rpc-fops.c
+@@ -1195,8 +1195,9 @@ client3_3_removexattr_cbk (struct rpc_req *req, struct iovec *iov, int count,
+         call_frame_t    *frame      = NULL;
+         gf_common_rsp    rsp        = {0,};
+         int              ret        = 0;
+-        xlator_t *this       = NULL;
+-        dict_t  *xdata       = NULL;
++        xlator_t        *this       = NULL;
++        dict_t          *xdata      = NULL;
++        gf_loglevel_t    loglevel   = GF_LOG_NONE;
+ 
+         this = THIS;
+ 
+@@ -1222,7 +1223,12 @@ client3_3_removexattr_cbk (struct rpc_req *req, struct iovec *iov, int count,
+ 
+ out:
+         if (rsp.op_ret == -1) {
+-                gf_log (this->name, GF_LOG_WARNING, "remote operation failed: %s",
++                if ((ENODATA == rsp.op_errno) || (ENOATTR == rsp.op_errno))
++                        loglevel = GF_LOG_DEBUG;
++                else
++                        loglevel = GF_LOG_WARNING;
++
++                gf_log (this->name, loglevel, "remote operation failed: %s",
+                         strerror (gf_error_to_errno (rsp.op_errno)));
+         }
+ 
+diff --git a/xlators/protocol/server/src/server-rpc-fops.c b/xlators/protocol/server/src/server-rpc-fops.c
+index 2275527..7631edd 100644
+--- a/xlators/protocol/server/src/server-rpc-fops.c
++++ b/xlators/protocol/server/src/server-rpc-fops.c
+@@ -679,13 +679,19 @@ server_removexattr_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+         gf_common_rsp        rsp   = {0,};
+         rpcsvc_request_t    *req   = NULL;
+         server_state_t      *state = NULL;
++        gf_loglevel_t        loglevel = GF_LOG_NONE;
+ 
+         GF_PROTOCOL_DICT_SERIALIZE (this, xdata, &rsp.xdata.xdata_val,
+                                     rsp.xdata.xdata_len, op_errno, out);
+ 
+         if (op_ret == -1) {
+                 state = CALL_STATE (frame);
+-                gf_log (this->name, GF_LOG_INFO,
++                if (ENODATA == op_errno || ENOATTR == op_errno)
++                        loglevel = GF_LOG_DEBUG;
++                else
++                        loglevel = GF_LOG_INFO;
++
++                gf_log (this->name, loglevel,
+                         "%"PRId64": REMOVEXATTR %s (%s) of key %s ==> (%s)",
+                         frame->root->unique, state->loc.path,
+                         uuid_utoa (state->resolve.gfid),
+-- 
+2.2.1
+

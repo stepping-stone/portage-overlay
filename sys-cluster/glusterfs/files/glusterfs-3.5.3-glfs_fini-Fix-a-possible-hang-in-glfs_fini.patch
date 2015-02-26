@@ -1,0 +1,86 @@
+From b5b054892b62bb7502600639f9a6b6a06307c54a Mon Sep 17 00:00:00 2001
+From: Poornima G <pgurusid@redhat.com>
+Date: Fri, 23 May 2014 12:58:56 +0530
+Subject: [PATCH] glfs_fini: Fix a possible hang in glfs_fini.
+
+glfs_fini is called when there is a failure in glfs_new,
+glfs_init etc. If an application sees a failure in glfs_new
+and calls glfs_fini, it will result in hang in glfs_fini.
+
+Fixed the hang.
+
+Change-Id: I80b52cd76d1d7f3fe9a10a91b7226d54176a8982
+BUG: 1091335
+Signed-off-by: Poornima G <pgurusid@redhat.com>
+Reviewed-on: http://review.gluster.org/7857
+Reviewed-by: soumya k <skoduri@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Anand Avati <avati@redhat.com>
+
+Conflicts:
+	api/src/glfs.c
+---
+ api/src/glfs.c | 39 ++++++++++++++++++++++++---------------
+ 1 file changed, 24 insertions(+), 15 deletions(-)
+
+diff --git a/api/src/glfs.c b/api/src/glfs.c
+index 5c137ef..963f265 100644
+--- a/api/src/glfs.c
++++ b/api/src/glfs.c
+@@ -745,6 +745,7 @@ pub_glfs_fini (struct glfs *fs)
+         xlator_t        *subvol = NULL;
+         glusterfs_ctx_t *ctx = NULL;
+         call_pool_t     *call_pool = NULL;
++        int             fs_init = 0;
+ 
+         ctx = fs->ctx;
+ 
+@@ -769,22 +770,30 @@ pub_glfs_fini (struct glfs *fs)
+          *pool*/
+         ret = (call_pool->cnt == 0)? 0: -1;
+ 
+-        subvol = priv_glfs_active_subvol (fs);
+-        if (subvol) {
+-                /* PARENT_DOWN within priv_glfs_subvol_done() is issued only
+-                   on graph switch (new graph should activiate and
+-                   decrement the extra @winds count taken in glfs_graph_setup()
+-
+-                   Since we are explicitly destroying, PARENT_DOWN is necessary
+-                */
+-                xlator_notify (subvol, GF_EVENT_PARENT_DOWN, subvol, 0);
+-                /* TBD: wait for CHILD_DOWN before exiting, in case of
+-                   asynchronous cleanup like graceful socket disconnection
+-                   in the future.
+-                */
++        pthread_mutex_lock (&fs->mutex);
++        {
++                fs_init = fs->init;
++        }
++        pthread_mutex_unlock (&fs->mutex);
++
++        if (fs_init != 0) {
++		subvol = priv_glfs_active_subvol (fs);
++		if (subvol) {
++			/* PARENT_DOWN within priv_glfs_subvol_done() is issued only
++			   on graph switch (new graph should activiate and
++			   decrement the extra @winds count taken in glfs_graph_setup()
++
++			   Since we are explicitly destroying, PARENT_DOWN is necessary
++			*/
++			xlator_notify (subvol, GF_EVENT_PARENT_DOWN, subvol, 0);
++			/* TBD: wait for CHILD_DOWN before exiting, in case of
++			   asynchronous cleanup like graceful socket disconnection
++			   in the future.
++			*/
++		}
++
++	        priv_glfs_subvol_done (fs, subvol);
+         }
+-
+-        priv_glfs_subvol_done (fs, subvol);
+ 
+         if (gf_log_fini(ctx) != 0)
+                 ret = -1;
+-- 
+2.2.1
+

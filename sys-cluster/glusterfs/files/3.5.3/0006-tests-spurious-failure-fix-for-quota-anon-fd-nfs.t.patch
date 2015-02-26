@@ -1,0 +1,176 @@
+From 9b51378d529378207f33a2d561793aca247f6523 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Wed, 26 Nov 2014 11:27:53 +0100
+Subject: [PATCH 06/25] tests: spurious failure fix for quota-anon-fd-nfs.t
+
+Cherry picked from commit 463d3e379d63e37764bc190be6c2f790769bea58:
+> Change-Id: I4f7ee68c514d8d322e25cf74167f288a8b6f8164
+> BUG: 1163543
+> Signed-off-by: Atin Mukherjee <amukherj@redhat.com>
+> Reviewed-on: http://review.gluster.org/9108
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+> Reviewed-by: Niels de Vos <ndevos@redhat.com>
+
+Also include the usage() function in the test, and some other
+improvements introduced with commit 27628b7b.
+
+BUG: 1168173
+Change-Id: I4153af903178893361157af2ab06ce4989dd849b
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/9200
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Atin Mukherjee <amukherj@redhat.com>
+---
+ tests/basic/quota-anon-fd-nfs.c | 47 +++++++++++++++++++++++++++++++++++++++++
+ tests/basic/quota-anon-fd-nfs.t | 32 ++++++++++++++++++++++------
+ tests/include.rc                |  2 ++
+ tests/nfs.rc                    |  6 ++++++
+ 4 files changed, 80 insertions(+), 7 deletions(-)
+ create mode 100644 tests/basic/quota-anon-fd-nfs.c
+
+diff --git a/tests/basic/quota-anon-fd-nfs.c b/tests/basic/quota-anon-fd-nfs.c
+new file mode 100644
+index 0000000..4cc0322
+--- /dev/null
++++ b/tests/basic/quota-anon-fd-nfs.c
+@@ -0,0 +1,47 @@
++#include <stdlib.h>
++#include <stdio.h>
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++
++int
++file_write (char *filename, int filesize)
++{
++        int fd, ret = 0;
++        int i = 0;
++        char buf[1024] = {'a',};
++        fd = open (filename, O_RDWR|O_CREAT|O_APPEND, 0600);
++        while (i < filesize) {
++                ret = write(fd, buf, sizeof(buf));
++                if (ret == -1) {
++                        close (fd);
++                        return ret;
++                }
++                i += sizeof(buf);
++                ret = fdatasync(fd);
++                if (ret) {
++                        close (fd);
++                        return ret;
++                }
++        }
++        ret = close(fd);
++        if (ret)
++                return ret;
++
++        return 0;
++}
++
++int
++main (int argc, char **argv)
++{
++        if (argc != 3) {
++                printf("Usage: %s <filename> <size(in bytes)>\n", argv[0]);
++                return EXIT_FAILURE;
++        }
++
++        printf ("argv[2] is %s\n", argv[2]);
++        if (file_write (argv[1], atoi(argv[2])) == -1)
++                return EXIT_FAILURE;
++
++        return EXIT_SUCCESS;
++}
+diff --git a/tests/basic/quota-anon-fd-nfs.t b/tests/basic/quota-anon-fd-nfs.t
+index c0af918..0f7a9aa 100755
+--- a/tests/basic/quota-anon-fd-nfs.t
++++ b/tests/basic/quota-anon-fd-nfs.t
+@@ -1,6 +1,14 @@
+ #!/bin/bash
+ 
+ . $(dirname $0)/../include.rc
++. $(dirname $0)/../nfs.rc
++
++function usage()
++{
++        local QUOTA_PATH=$1;
++        $CLI volume quota $V0 list $QUOTA_PATH | \
++                grep "$QUOTA_PATH" | awk '{print $4}'
++}
+ 
+ cleanup;
+ 
+@@ -16,19 +24,29 @@ TEST $CLI volume set $V0 network.inode-lru-limit 1
+ TEST $CLI volume start $V0;
+ EXPECT 'Started' volinfo_field $V0 'Status';
+ 
+-TEST mount -t nfs localhost:/$V0 $N0
+-sleep 10
++EXPECT_WITHIN $NFS_EXPORT_TIMEOUT 1 is_nfs_export_available
++TEST mount_nfs $H0:/$V0 $N0
+ deep=/0/1/2/3/4/5/6/7/8/9
+ TEST mkdir -p $N0/$deep
+ 
+-TEST dd if=/dev/zero of=$N0/$deep/file bs=1K count=1M
++TEST dd if=/dev/zero of=$N0/$deep/file bs=1k count=10240
+ 
+ TEST $CLI volume quota $V0 enable
+-TEST $CLI volume quota $V0 limit-usage / 2GB
++TEST $CLI volume quota $V0 limit-usage / 20MB
+ TEST $CLI volume quota $V0 soft-timeout 0
++TEST $CLI volume quota $V0 hard-timeout 0
++
++TEST dd if=/dev/zero of=$N0/$deep/newfile_1 bs=512 count=10240
++# wait for write behind to complete.
++EXPECT_WITHIN $MARKER_UPDATE_TIMEOUT "15.0MB" usage "/"
++
++# compile the test write program and run it
++TEST $CC $(dirname $0)/quota-anon-fd-nfs.c -o $(dirname $0)/quota-anon-fd-nfs;
++# Try to create a 100Mb file which should fail
++TEST ! $(dirname $0)/quota-anon-fd-nfs $N0/$deep/newfile_2 "104857600"
++TEST rm -f $N0/$deep/newfile_2
+ 
+-sleep 10
+-TEST dd if=/dev/zero of=$N0/$deep/newfile_1 bs=500 count=1M
+-TEST ! dd if=/dev/zero of=$N0/$deep/newfile_2 bs=1000 count=1M
++## Before killing daemon to avoid deadlocks
++umount_nfs $N0
+ 
+ cleanup;
+diff --git a/tests/include.rc b/tests/include.rc
+index 01da604..8043d60 100644
+--- a/tests/include.rc
++++ b/tests/include.rc
+@@ -8,6 +8,7 @@ H0=${H0:=`hostname --fqdn`};  # hostname
+ DEBUG=${DEBUG:=0}             # turn on debugging?
+ statedumpdir=`gluster --print-statedumpdir`; # Default directory for statedump
+ CLI="gluster --mode=script";
++CC=cc
+ 
+ CHILD_UP_TIMEOUT=60
+ NFS_EXPORT_TIMEOUT=20
+@@ -15,6 +16,7 @@ UMOUNT_TIMEOUT=5
+ PROCESS_UP_TIMEOUT=20
+ REBALANCE_TIMEOUT=120
+ HEAL_TIMEOUT=120
++MARKER_UPDATE_TIMEOUT=20
+ 
+ mkdir -p $B0;
+ mkdir -p $M0 $M1;
+diff --git a/tests/nfs.rc b/tests/nfs.rc
+index e35b685..4b4a55e 100644
+--- a/tests/nfs.rc
++++ b/tests/nfs.rc
+@@ -26,3 +26,9 @@ function mount_nfs ()
+         if [ ! -z "$opt" ]; then opt=",$opt"; fi
+         mount -t nfs -o soft,intr,vers=3"$opt" $e $m
+ }
++
++function umount_nfs ()
++{
++        umount -f $1
++        if [ $? -eq 0 ]; then echo "Y"; else echo "N"; fi
++}
+-- 
+2.2.1
+

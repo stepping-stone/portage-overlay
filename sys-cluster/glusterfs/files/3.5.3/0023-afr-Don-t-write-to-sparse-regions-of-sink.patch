@@ -1,0 +1,477 @@
+From b6c37bd9954fb3b7aee79dbe453f875b70a03e71 Mon Sep 17 00:00:00 2001
+From: Ravishankar N <ravishankar@redhat.com>
+Date: Mon, 9 Feb 2015 08:31:10 +0530
+Subject: [PATCH 23/25] afr: Don't write to sparse regions of sink.
+
+Corresponding afr-v2 fix: http://review.gluster.org/#/c/9480/
+
+Problem:
+When data-self-heal-algorithm is set to 'full', shd just reads from
+source and writes to sink. If source file happened to be sparse (VM
+workloads), we end up actually writing 0s to the corresponding regions
+of the sink causing it to lose its sparseness.
+
+Fix:
+If the source file is sparse, and the data read from source and sink are
+both zeros for that range, skip writing that range to the sink.
+
+Change-Id: Iade957e4173c87e45a2881df501ba2ad3eb1a172
+BUG: 1190633
+Signed-off-by: Ravishankar N <ravishankar@redhat.com>
+Reviewed-on: http://review.gluster.org/9611
+Reviewed-by: Pranith Kumar Karampuri <pkarampu@redhat.com>
+Reviewed-by: Krutika Dhananjay <kdhananj@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ tests/basic/afr/sparse-file-self-heal.t           | 138 +++++++++++++++
+ tests/volume.rc                                   |   9 +
+ xlators/cluster/afr/src/afr-self-heal-algorithm.c | 197 ++++++++++++++++------
+ 3 files changed, 293 insertions(+), 51 deletions(-)
+ create mode 100644 tests/basic/afr/sparse-file-self-heal.t
+
+diff --git a/tests/basic/afr/sparse-file-self-heal.t b/tests/basic/afr/sparse-file-self-heal.t
+new file mode 100644
+index 0000000..f2a0863
+--- /dev/null
++++ b/tests/basic/afr/sparse-file-self-heal.t
+@@ -0,0 +1,138 @@
++#!/bin/bash
++
++#This file checks if self-heal of files with holes is working properly or not
++#bigger is 2M, big is 1M, small is anything less
++. $(dirname $0)/../../include.rc
++. $(dirname $0)/../../volume.rc
++
++cleanup;
++
++TEST glusterd
++TEST pidof glusterd
++TEST $CLI volume create $V0 replica 2 $H0:$B0/${V0}{0,1}
++TEST $CLI volume set $V0 data-self-heal-algorithm full
++TEST $CLI volume start $V0
++
++TEST glusterfs --volfile-id=/$V0 --volfile-server=$H0 $M0;
++TEST dd if=/dev/urandom of=$M0/small count=1 bs=1024k
++TEST dd if=/dev/urandom of=$M0/bigger2big count=1 bs=2048k
++TEST dd if=/dev/urandom of=$M0/big2bigger count=1 bs=1024k
++TEST truncate -s 1G $M0/FILE
++
++TEST kill_brick $V0 $H0 $B0/${V0}0
++
++#File with >128k size hole
++TEST truncate -s 1M $M0/big
++big_md5sum=$(md5sum $M0/big | awk '{print $1}')
++
++#File with <128k hole
++TEST truncate -s 0 $M0/small
++TEST truncate -s 64k $M0/small
++small_md5sum=$(md5sum $M0/small | awk '{print $1}')
++
++#Bigger file truncated to big size hole.
++TEST truncate -s 0 $M0/bigger2big
++TEST truncate -s 1M $M0/bigger2big
++bigger2big_md5sum=$(md5sum $M0/bigger2big | awk '{print $1}')
++
++#Big file truncated to Bigger size hole
++TEST truncate -s 2M $M0/big2bigger
++big2bigger_md5sum=$(md5sum $M0/big2bigger | awk '{print $1}')
++
++#Write data to file and restore its sparseness
++TEST dd if=/dev/urandom of=$M0/FILE count=1 bs=131072
++TEST truncate -s 1G $M0/FILE
++
++$CLI volume start $V0 force
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status $V0 0
++EXPECT_WITHIN $PROCESS_UP_TIMEOUT "Y" glustershd_up_status
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status_in_shd $V0 0
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status_in_shd $V0 1
++TEST gluster volume heal $V0 full
++EXPECT_WITHIN $HEAL_TIMEOUT "0" afr_get_pending_heal_count $V0
++
++big_md5sum_0=$(md5sum $B0/${V0}0/big | awk '{print $1}')
++small_md5sum_0=$(md5sum $B0/${V0}0/small | awk '{print $1}')
++bigger2big_md5sum_0=$(md5sum $B0/${V0}0/bigger2big | awk '{print $1}')
++big2bigger_md5sum_0=$(md5sum $B0/${V0}0/big2bigger | awk '{print $1}')
++
++EXPECT $big_md5sum echo $big_md5sum_0
++EXPECT $small_md5sum echo $small_md5sum_0
++EXPECT $big2bigger_md5sum echo $big2bigger_md5sum_0
++EXPECT $bigger2big_md5sum echo $bigger2big_md5sum_0
++
++
++EXPECT "1" has_holes $B0/${V0}0/big
++#Because self-heal writes the final chunk hole should not be there for
++#files < 128K
++EXPECT "0" has_holes $B0/${V0}0/small
++# Since source is smaller than sink, self-heal does blind copy so no holes will
++# be present
++EXPECT "0" has_holes $B0/${V0}0/bigger2big
++EXPECT "1" has_holes $B0/${V0}0/big2bigger
++
++#Check that self-heal has not written 0s to sink and made it non-sparse.
++USED_KB=`du -s $B0/${V0}0/FILE|cut -f1`
++TEST [ $USED_KB -lt 1000000 ]
++TEST rm -f $M0/*
++
++#check the same tests with diff self-heal
++TEST $CLI volume set $V0 data-self-heal-algorithm diff
++
++TEST dd if=/dev/urandom of=$M0/small count=1 bs=1024k
++TEST dd if=/dev/urandom of=$M0/big2bigger count=1 bs=1024k
++TEST dd if=/dev/urandom of=$M0/bigger2big count=1 bs=2048k
++TEST truncate -s 1G $M0/FILE
++
++TEST kill_brick $V0 $H0 $B0/${V0}0
++
++#File with >128k size hole
++TEST truncate -s 1M $M0/big
++big_md5sum=$(md5sum $M0/big | awk '{print $1}')
++
++#File with <128k hole
++TEST truncate -s 0 $M0/small
++TEST truncate -s 64k $M0/small
++small_md5sum=$(md5sum $M0/small | awk '{print $1}')
++
++#Bigger file truncated to big size hole
++TEST truncate -s 0 $M0/bigger2big
++TEST truncate -s 1M $M0/bigger2big
++bigger2big_md5sum=$(md5sum $M0/bigger2big | awk '{print $1}')
++
++#Big file truncated to Bigger size hole
++TEST truncate -s 2M $M0/big2bigger
++big2bigger_md5sum=$(md5sum $M0/big2bigger | awk '{print $1}')
++
++#Write data to file and restore its sparseness
++TEST dd if=/dev/urandom of=$M0/FILE count=1 bs=131072
++TEST truncate -s 1G $M0/FILE
++
++$CLI volume start $V0 force
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status $V0 0
++EXPECT_WITHIN $PROCESS_UP_TIMEOUT "Y" glustershd_up_status
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status_in_shd $V0 0
++EXPECT_WITHIN $CHILD_UP_TIMEOUT "1" afr_child_up_status_in_shd $V0 1
++TEST gluster volume heal $V0 full
++EXPECT_WITHIN $HEAL_TIMEOUT "0" afr_get_pending_heal_count $V0
++
++big_md5sum_0=$(md5sum $B0/${V0}0/big | awk '{print $1}')
++small_md5sum_0=$(md5sum $B0/${V0}0/small | awk '{print $1}')
++bigger2big_md5sum_0=$(md5sum $B0/${V0}0/bigger2big | awk '{print $1}')
++big2bigger_md5sum_0=$(md5sum $B0/${V0}0/big2bigger | awk '{print $1}')
++
++EXPECT $big_md5sum echo $big_md5sum_0
++EXPECT $small_md5sum echo $small_md5sum_0
++EXPECT $big2bigger_md5sum echo $big2bigger_md5sum_0
++EXPECT $bigger2big_md5sum echo $bigger2big_md5sum_0
++
++EXPECT "1" has_holes $B0/${V0}0/big
++EXPECT "1" has_holes $B0/${V0}0/big2bigger
++EXPECT "0" has_holes $B0/${V0}0/bigger2big
++EXPECT "0" has_holes $B0/${V0}0/small
++
++#Check that self-heal has not written 0s to sink and made it non-sparse.
++USED_KB=`du -s $B0/${V0}0/FILE|cut -f1`
++TEST [ $USED_KB -lt 1000000 ]
++
++cleanup
+diff --git a/tests/volume.rc b/tests/volume.rc
+index 1c58597..53f863e 100644
+--- a/tests/volume.rc
++++ b/tests/volume.rc
+@@ -293,3 +293,12 @@ function get_hex_xattr {
+         local path=$2
+         getfattr -d -m. -e hex $2 2>/dev/null | grep $1 | cut -f2 -d'=' | cut -f2 -d'x'
+ }
++
++function has_holes {
++        if [ $((`stat -c '%b*%B-%s' $1`)) -lt 0 ];
++        then
++                echo "1"
++        else
++                echo "0"
++        fi
++}
+diff --git a/xlators/cluster/afr/src/afr-self-heal-algorithm.c b/xlators/cluster/afr/src/afr-self-heal-algorithm.c
+index 83846f1..fa11678 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-algorithm.c
++++ b/xlators/cluster/afr/src/afr-self-heal-algorithm.c
+@@ -400,7 +400,7 @@ sh_loop_return (call_frame_t *sh_frame, xlator_t *this, call_frame_t *loop_frame
+ }
+ 
+ static int
+-sh_loop_write_cbk (call_frame_t *loop_frame, void *cookie, xlator_t *this,
++sh_loop_sink_write_cbk (call_frame_t *loop_frame, void *cookie, xlator_t *this,
+                    int32_t op_ret, int32_t op_errno, struct iatt *buf,
+                    struct iatt *postbuf, dict_t *xdata)
+ {
+@@ -458,21 +458,117 @@ sh_loop_write_cbk (call_frame_t *loop_frame, void *cookie, xlator_t *this,
+ }
+ 
+ static void
+-sh_prune_writes_needed (call_frame_t *sh_frame, call_frame_t *loop_frame,
+-                        afr_private_t *priv)
++sh_loop_sink_write (call_frame_t *loop_frame, xlator_t *this,
++                    struct iovec *vector, int32_t count, struct iobref *iobref)
+ {
+-        afr_local_t     *sh_local     = NULL;
+-        afr_self_heal_t *sh           = NULL;
+-        afr_local_t     *loop_local   = NULL;
+-        afr_self_heal_t *loop_sh      = NULL;
+-        int             i             = 0;
++        afr_private_t   * priv      = NULL;
++        afr_local_t     *loop_local = NULL;
++        afr_self_heal_t *loop_sh    = NULL;
++        call_frame_t    *sh_frame   = NULL;
++        int              call_count = 0;
++        int              i          = 0;
++
++        priv = this->private;
++        loop_local = loop_frame->local;
++        loop_sh = &loop_local->self_heal;
++        sh_frame = loop_sh->sh_frame;
++
++        call_count = sh_number_of_writes_needed (loop_sh->write_needed,
++                                                 priv->child_count);
++        if (call_count == 0) {
++                iobref_unref(loop_local->cont.writev.iobref);
++                sh_loop_return (sh_frame, this, loop_frame, 0, 0);
++                goto out;
++        }
++
++        loop_local->call_count = call_count;
++
++        for (i = 0; i < priv->child_count; i++) {
++                if (!loop_sh->write_needed[i])
++                        continue;
++                STACK_WIND_COOKIE (loop_frame, sh_loop_sink_write_cbk,
++                                   (void *) (long) i,
++                                   priv->children[i],
++                                   priv->children[i]->fops->writev,
++                                   loop_sh->healing_fd, vector, count,
++                                   loop_sh->offset, 0, iobref, NULL);
++
++                if (!--call_count)
++                        break;
++        }
++
++out:
++        return;
++}
++
++static int
++sh_loop_sink_read_cbk (call_frame_t *loop_frame, void *cookie,
++                  xlator_t *this, int32_t op_ret, int32_t op_errno,
++                  struct iovec *vector, int32_t count, struct iatt *buf,
++                  struct iobref *iobref, dict_t *xdata)
++{
++        int32_t          child_index = 0;
++        int              call_count  = 0;
++        afr_local_t     *loop_local  = NULL;
++        afr_self_heal_t *loop_sh     = NULL;
++        call_frame_t    *sh_frame    = NULL;
++        afr_local_t     *sh_local    = NULL;
++        afr_private_t   *priv        = NULL;
++
++        child_index = (long) cookie;
++        priv = this->private;
++
++        loop_local = loop_frame->local;
++        loop_sh    = &loop_local->self_heal;
++
++        sh_frame = loop_sh->sh_frame;
++        sh_local = sh_frame->local;
++
++        if (op_ret == -1) {
++                gf_log (this->name, GF_LOG_ERROR, "read failed on %s "
++                        "for %s reason :%s", priv->children[child_index]->name,
++                        sh_local->loc.path, strerror (op_errno));
++                afr_sh_set_error (loop_sh, op_errno);
++        }
++
++        if ((op_ret > 0) && (iov_0filled (vector, count) == 0)) {
++                loop_sh->write_needed[child_index] = 0;
++        }
++
++        call_count = afr_frame_return (loop_frame);
++
++        if (call_count == 0) {
++                if (loop_sh->op_ret == -1) {
++                        iobref_unref(loop_local->cont.writev.iobref);
++                        sh_loop_return (sh_frame, this, loop_frame,
++                                        loop_sh->op_ret, loop_sh->op_errno);
++                        goto out;
++                }
++                sh_loop_sink_write (loop_frame, this,
++                                    loop_local->cont.writev.vector,
++                                    loop_local->cont.writev.count,
++                                    loop_local->cont.writev.iobref);
++        }
++out:
++        return 0;
++}
++
++static void
++sh_prune_writes_if_needed (call_frame_t *sh_frame, call_frame_t *loop_frame,
++                           afr_private_t *priv, xlator_t *this,
++                           struct iovec *vector, int32_t count,
++                           struct iobref *iobref)
++{
++        afr_local_t     *sh_local        = NULL;
++        afr_self_heal_t *sh              = NULL;
++        afr_local_t     *loop_local      = NULL;
++        afr_self_heal_t *loop_sh         = NULL;
++        int              i               = 0;
++        int              call_count      = 0;
+ 
+         sh_local   = sh_frame->local;
+         sh         = &sh_local->self_heal;
+ 
+-        if (!strcmp (sh->algo->name, "diff"))
+-                return;
+-
+         loop_local = loop_frame->local;
+         loop_sh    = &loop_local->self_heal;
+ 
+@@ -485,10 +581,31 @@ sh_prune_writes_needed (call_frame_t *sh_frame, call_frame_t *loop_frame,
+                     ((loop_sh->offset + 1) > sh->buf[i].ia_size))
+                         loop_sh->write_needed[i] = 0;
+         }
++
++        call_count = sh_number_of_writes_needed (loop_sh->write_needed,
++                                                  priv->child_count);
++        if (!call_count) {
++                iobref_unref(loop_local->cont.writev.iobref);
++                sh_loop_return (sh_frame, this, loop_frame, 0, 0);
++                return;
++        }
++        loop_local->call_count = call_count;
++        for (i = 0; i < priv->child_count; i++) {
++                if (!loop_sh->write_needed[i])
++                        continue;
++                STACK_WIND_COOKIE (loop_frame, sh_loop_sink_read_cbk, (void *)(long) i,
++                                   priv->children[i], priv->children[i]->fops->readv,
++                                   loop_sh->healing_fd, loop_sh->block_size,
++                                   loop_sh->offset, 0, NULL);
++                if (!--call_count)
++                        break;
++        }
++
++        return;
+ }
+ 
+ static int
+-sh_loop_read_cbk (call_frame_t *loop_frame, void *cookie,
++sh_loop_source_read_cbk (call_frame_t *loop_frame, void *cookie,
+                   xlator_t *this, int32_t op_ret, int32_t op_errno,
+                   struct iovec *vector, int32_t count, struct iatt *buf,
+                   struct iobref *iobref, dict_t *xdata)
+@@ -497,8 +614,6 @@ sh_loop_read_cbk (call_frame_t *loop_frame, void *cookie,
+         afr_local_t *                 loop_local   = NULL;
+         afr_self_heal_t *             loop_sh      = NULL;
+         call_frame_t                 *sh_frame   = NULL;
+-        int                           i          = 0;
+-        int                           call_count = 0;
+         afr_local_t *                 sh_local   = NULL;
+         afr_self_heal_t *             sh      = NULL;
+ 
+@@ -517,9 +632,10 @@ sh_loop_read_cbk (call_frame_t *loop_frame, void *cookie,
+         if (op_ret <= 0) {
+                 if (op_ret < 0) {
+                         afr_set_self_heal_status (sh, AFR_SELF_HEAL_FAILED);
+-                        gf_log (this->name, GF_LOG_ERROR, "read failed on %d "
+-                                "for %s reason :%s", sh->source,
+-                                sh_local->loc.path, strerror (errno));
++                        gf_log (this->name, GF_LOG_ERROR, "read failed on %s "
++                                "for %s reason :%s",
++                                priv->children[sh->source]->name,
++                                sh_local->loc.path, strerror (op_errno));
+                 } else {
+                         sh->eof_reached = _gf_true;
+                         gf_log (this->name, GF_LOG_DEBUG, "Eof reached for %s",
+@@ -529,38 +645,17 @@ sh_loop_read_cbk (call_frame_t *loop_frame, void *cookie,
+                 goto out;
+         }
+ 
+-        if (loop_sh->file_has_holes && iov_0filled (vector, count) == 0)
+-                sh_prune_writes_needed (sh_frame, loop_frame, priv);
+-
+-        call_count = sh_number_of_writes_needed (loop_sh->write_needed,
+-                                                 priv->child_count);
+-        if (call_count == 0) {
+-                sh_loop_return (sh_frame, this, loop_frame, 0, 0);
+-                goto out;
+-        }
+-
+-        loop_local->call_count = call_count;
+-
+-	/*
+-	 * We only really need the request size at the moment, but the buffer
+-	 * is required if we want to issue a retry in the event of a short write.
+-	 * Therefore, we duplicate the vector and ref the iobref here...
+-	 */
+-	loop_local->cont.writev.vector = iov_dup(vector, count);
+-	loop_local->cont.writev.iobref = iobref_ref(iobref);
++        loop_local->cont.writev.vector = iov_dup(vector, count);
++        loop_local->cont.writev.iobref = iobref_ref(iobref);
++        loop_local->cont.writev.count  = count;
+ 
+-        for (i = 0; i < priv->child_count; i++) {
+-                if (!loop_sh->write_needed[i])
+-                        continue;
+-                STACK_WIND_COOKIE (loop_frame, sh_loop_write_cbk,
+-                                   (void *) (long) i,
+-                                   priv->children[i],
+-                                   priv->children[i]->fops->writev,
+-                                   loop_sh->healing_fd, vector, count,
+-                                   loop_sh->offset, 0, iobref, NULL);
++        if (!strcmp (sh->algo->name, "full") && loop_sh->file_has_holes &&
++             iov_0filled (vector, count) == 0) {
++                sh_prune_writes_if_needed (sh_frame, loop_frame, priv, this,
++                                           vector, count, iobref);
++        } else {
++                sh_loop_sink_write (loop_frame, this, vector, count, iobref);
+ 
+-                if (!--call_count)
+-                        break;
+         }
+ 
+ out:
+@@ -569,7 +664,7 @@ out:
+ 
+ 
+ static int
+-sh_loop_read (call_frame_t *loop_frame, xlator_t *this)
++sh_loop_source_read (call_frame_t *loop_frame, xlator_t *this)
+ {
+         afr_private_t           *priv       = NULL;
+         afr_local_t             *loop_local   = NULL;
+@@ -579,7 +674,7 @@ sh_loop_read (call_frame_t *loop_frame, xlator_t *this)
+         loop_local = loop_frame->local;
+         loop_sh    = &loop_local->self_heal;
+ 
+-        STACK_WIND_COOKIE (loop_frame, sh_loop_read_cbk,
++        STACK_WIND_COOKIE (loop_frame, sh_loop_source_read_cbk,
+                            (void *) (long) loop_sh->source,
+                            priv->children[loop_sh->source],
+                            priv->children[loop_sh->source]->fops->readv,
+@@ -666,7 +761,7 @@ sh_diff_checksum_cbk (call_frame_t *loop_frame, void *cookie, xlator_t *this,
+ 
+                 if (write_needed &&
+                     !is_self_heal_failed (sh, AFR_CHECK_SPECIFIC)) {
+-                        sh_loop_read (loop_frame, this);
++                        sh_loop_source_read (loop_frame, this);
+                 } else {
+                         sh_loop_return (sh_frame, this, loop_frame,
+                                         op_ret, op_errno);
+@@ -735,7 +830,7 @@ sh_full_read_write_to_sinks (call_frame_t *loop_frame, xlator_t *this)
+                         continue;
+                 loop_sh->write_needed[i] = 1;
+         }
+-        sh_loop_read (loop_frame, this);
++        sh_loop_source_read (loop_frame, this);
+         return 0;
+ }
+ 
+-- 
+2.2.1
+

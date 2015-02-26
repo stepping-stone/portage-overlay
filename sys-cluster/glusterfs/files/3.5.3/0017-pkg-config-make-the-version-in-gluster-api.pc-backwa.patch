@@ -1,0 +1,74 @@
+From 20f45d95608e4a7ba54c3977d0a5c31ee5a36cd9 Mon Sep 17 00:00:00 2001
+From: Niels de Vos <ndevos@redhat.com>
+Date: Thu, 20 Nov 2014 16:26:36 +0100
+Subject: [PATCH 17/25] pkg-config: make the version in gluster-api.pc
+ backwards compatible
+
+Once we released gluster-api.pc with version=4. Since then we undid the
+library versioning and replaced it with symbol-versioning. The current
+libgfapi.so has version 0, but the symbols have the version from the
+main package at the time they were added.
+
+Because other packages (like samba) use the pkg-config version, we can
+not drop it, or decrease the version easily. The simplest solution is to
+keep the version=4 and add sub-digits for the actual package/symbol
+versions. In future, the version in gluster-api.pc will be like 4.3.x.y.
+
+Cherry picked from commit 6ba258d2b7d4520af95ff638e02598e4aa247ec4:
+> Change-Id: If359c8de5b847a7e818199a7246636113837da2d
+> BUG: 1166232
+> Signed-off-by: Niels de Vos <ndevos@redhat.com>
+> Reviewed-on: http://review.gluster.org/9154
+> Reviewed-by: Kaleb KEITHLEY <kkeithle@redhat.com>
+> Reviewed-by: Lalatendu Mohanty <lmohanty@redhat.com>
+> Tested-by: Gluster Build System <jenkins@build.gluster.com>
+
+BUG: 1160711
+Change-Id: I785335972b357954fe4ede9c599b305c4a56eba7
+Signed-off-by: Niels de Vos <ndevos@redhat.com>
+Reviewed-on: http://review.gluster.org/9199
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+---
+ configure.ac        | 13 +++++++++++++
+ glusterfs-api.pc.in |  2 +-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/configure.ac b/configure.ac
+index 462aa54..078ec99 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -893,6 +893,19 @@ AM_CONDITIONAL([GF_DARWIN_HOST_OS], test "${GF_HOST_OS}" = "GF_DARWIN_HOST_OS")
+ 
+ AM_CONDITIONAL([GF_INSTALL_VAR_LIB_GLUSTERD], test ! -d ${localstatedir}/lib/glusterd && test -d ${sysconfdir}/glusterd )
+ 
++dnl pkg-config versioning
++dnl
++dnl Once we released gluster-api.pc with version=4. Since then we undid the
++dnl library versioning and replaced it with symbol-versioning. The current
++dnl libgfapi.so has version 0, but the symbols have the version from the main
++dnl package at the time they were added.
++dnl
++dnl Because other packages (like samba) use the pkg-config version, we can not
++dnl drop it, or decrease the version easily. The simplest solution is to keep
++dnl the version=4 and add sub-digits for the actual package/symbol versions.
++GFAPI_VERSION="4."${PACKAGE_VERSION}
++AC_SUBST(GFAPI_VERSION)
++
+ AC_OUTPUT
+ 
+ echo
+diff --git a/glusterfs-api.pc.in b/glusterfs-api.pc.in
+index fab4a57..144d441 100644
+--- a/glusterfs-api.pc.in
++++ b/glusterfs-api.pc.in
+@@ -7,6 +7,6 @@ includedir=@includedir@
+ Name: glusterfs-api
+ Description: GlusterFS API
+ /* This is the API version, NOT package version */
+-Version: 6
++Version: @GFAPI_VERSION@
+ Libs: -L${libdir} -lgfapi -lglusterfs -lgfrpc -lgfxdr
+ Cflags: -I${includedir}/glusterfs -D_FILE_OFFSET_BITS=64 -D__USE_FILE_OFFSET64
+-- 
+2.2.1
+

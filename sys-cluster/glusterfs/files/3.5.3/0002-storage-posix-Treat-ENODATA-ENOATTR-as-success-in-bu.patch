@@ -1,0 +1,56 @@
+From 9b590b457210ca45246ee461d845e57932fda84a Mon Sep 17 00:00:00 2001
+From: Pranith Kumar K <pkarampu@redhat.com>
+Date: Wed, 5 Nov 2014 09:04:50 +0530
+Subject: [PATCH 02/25] storage/posix: Treat ENODATA/ENOATTR as success in bulk
+ removexattr
+
+        Backport of http://review.gluster.org/9049
+
+Bulk remove xattr is internal fop in gluster. Some of the xattrs may have
+special behavior. Ex: removexattr("posix.system_acl_access"), removes more than
+one xattr on the file that could be present in the bulk-removal request.
+Removexattr of these deleted xattrs will fail with either ENODATA/ENOATTR.
+As all this fop cares is removal of the xattrs in bulk-remove request and
+if they are already deleted, it can be treated as success.
+
+BUG: 1162226
+Change-Id: I0629b48b854cda923c47bc5f50558bf42c60149b
+Signed-off-by: Pranith Kumar K <pkarampu@redhat.com>
+Reviewed-on: http://review.gluster.org/9089
+Reviewed-by: Raghavendra G <rgowdapp@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/storage/posix/src/posix.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/xlators/storage/posix/src/posix.c b/xlators/storage/posix/src/posix.c
+index bbb27e3..066d830 100644
+--- a/xlators/storage/posix/src/posix.c
++++ b/xlators/storage/posix/src/posix.c
+@@ -4091,9 +4091,22 @@ _posix_remove_xattr (dict_t *dict, char *key, data_t *value, void *data)
+ 
+         filler = (posix_xattr_filler_t *) data;
+         this = filler->this;
++    /* Bulk remove xattr is internal fop in gluster. Some of the xattrs may
++     * have special behavior. Ex: removexattr("posix.system_acl_access"),
++     * removes more than one xattr on the file that could be present in the
++     * bulk-removal request.  Removexattr of these deleted xattrs will fail
++     * with either ENODATA/ENOATTR.  Since all this fop cares is removal of the
++     * xattrs in bulk-remove request and if they are already deleted, it can be
++     * treated as success.
++     */
+ 
+         op_ret = sys_lremovexattr (filler->real_path, key);
+         if (op_ret == -1) {
++                if (errno == ENODATA || errno == ENOATTR)
++                        op_ret = 0;
++        }
++
++        if (op_ret == -1) {
+                 filler->op_errno = errno;
+                 if (errno != ENOATTR && errno != EPERM)
+                         gf_log (this->name, GF_LOG_ERROR,
+-- 
+2.2.1
+

@@ -1,0 +1,90 @@
+From 909eb5671db37ff1388613929fe22883a4677da0 Mon Sep 17 00:00:00 2001
+From: Pranith Kumar K <pkarampu@redhat.com>
+Date: Fri, 7 Nov 2014 09:21:10 +0530
+Subject: [PATCH 03/25] cluster/afr: Fix xattr heal comparison checks
+
+        Backport of part of the fixes in http://review.gluster.org/8558
+
+Problem:
+While implementing list-xattr based meta-data self-heal for afr-v2 we found
+2 issues, with afr-v1's implementation.
+
+1) change in QUOTA_SIZE_KEY xattr value can trigger spurious  metadata
+   self-heal.
+2) xattr comparison function that is implemented for afr-v1 checks if the
+   number of xattrs in both the xattrs is same and then checks that the xattrs
+   present in brick-1's response are present and equal. But what we observed me
+   was that count also contains the gluster internal/virtual xattrs where as
+   the compare function should only compare on-disk external xattrs that can be
+   healed. So the correct implementation should check that the external xattrs
+   in first brick's response are present in second brick's response and vide
+   versa.
+
+Fix:
+This patch is partly backported from afr-v2's implementation. Will be providing
+the links where necessary.
+
+1) Added QUOTA_SIZE_KEY xattr to the list of xattrs that need to be ignored.
+   (http://review.gluster.org/#/c/8558/10/xlators/cluster/afr/src/afr-common.c
+   line: 1155)
+2) For xattrs to be equal, check all keys in xattr-dict1 are in xattr-dict2 and
+   equal and vice versa.
+   (http://review.gluster.org/#/c/8558/10/xlators/cluster/afr/src/afr-common.c
+   line: 1195)
+
+Change-Id: I63aa74858c6f608b98d1fe425b3fa56f925bb5b3
+BUG: 1162230
+Signed-off-by: Pranith Kumar K <pkarampu@redhat.com>
+Reviewed-on: http://review.gluster.org/9090
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+---
+ tests/include.rc                     | 1 +
+ xlators/cluster/afr/src/afr-common.c | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/tests/include.rc b/tests/include.rc
+index e40cc46..01da604 100644
+--- a/tests/include.rc
++++ b/tests/include.rc
+@@ -14,6 +14,7 @@ NFS_EXPORT_TIMEOUT=20
+ UMOUNT_TIMEOUT=5
+ PROCESS_UP_TIMEOUT=20
+ REBALANCE_TIMEOUT=120
++HEAL_TIMEOUT=120
+ 
+ mkdir -p $B0;
+ mkdir -p $M0 $M1;
+diff --git a/xlators/cluster/afr/src/afr-common.c b/xlators/cluster/afr/src/afr-common.c
+index 7cfe766..fae3d4c 100644
+--- a/xlators/cluster/afr/src/afr-common.c
++++ b/xlators/cluster/afr/src/afr-common.c
+@@ -1775,6 +1775,7 @@ static char *afr_ignore_xattrs[] = {
+         GLUSTERFS_ENTRYLK_COUNT,
+         GLUSTERFS_INODELK_COUNT,
+         GF_SELINUX_XATTR_KEY,
++        QUOTA_SIZE_KEY,
+         NULL
+ };
+ 
+@@ -1829,12 +1830,15 @@ afr_lookup_xattrs_are_equal (dict_t **xattr, int32_t *success_children, int succ
+         child1 =  success_children[0];
+         for (i = 1; i < success_count; i++) {
+                 child2 = success_children[i];
+-                if (xattr[child1]->count != xattr[child2]->count)
+-                        return _gf_false;
+                 ret = dict_foreach (xattr[child1], xattr_is_equal,
+                                     (void*) xattr[child2]);
+                 if (ret == -1)
+                         return _gf_false;
++
++                ret = dict_foreach (xattr[child2], xattr_is_equal,
++                                    (void*) xattr[child1]);
++                if (ret == -1)
++                        return _gf_false;
+         }
+ 
+         return _gf_true;
+-- 
+2.2.1
+

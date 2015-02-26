@@ -1,0 +1,171 @@
+From c11c9deb3cf77101c7e440522ab8f5961f815222 Mon Sep 17 00:00:00 2001
+From: Anuradha <atalur@redhat.com>
+Date: Thu, 13 Nov 2014 10:59:52 +0530
+Subject: [PATCH 04/25] cluster/afr : Prevent excessive logging of split-brain
+ messages.
+
+        Running the volume heal info command would result in
+excessive logging of split-brain messages. After this patch,
+running heal info command will not log the split brain messages.
+This info is now displayed in the output of heal info command
+instead.
+If a file is in split-brain, a message "Is in split-brain"
+will be written against its name.
+
+Change-Id: Ib8979be04f5ac7c59ce3ad1185886bb54b8be808
+BUG: 1161102
+Signed-off-by: Anuradha <atalur@redhat.com>
+Reviewed-on: http://review.gluster.org/9069
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ heal/src/glfs-heal.c                             | 26 ++++++++++++++++++++----
+ xlators/cluster/afr/src/afr-common.c             |  6 ++++++
+ xlators/cluster/afr/src/afr-self-heal-common.c   |  9 +++++---
+ xlators/cluster/afr/src/afr-self-heal-common.h   |  2 +-
+ xlators/cluster/afr/src/afr-self-heal-data.c     |  2 +-
+ xlators/cluster/afr/src/afr-self-heal-metadata.c |  2 +-
+ 6 files changed, 37 insertions(+), 10 deletions(-)
+
+diff --git a/heal/src/glfs-heal.c b/heal/src/glfs-heal.c
+index 78716ad..236361c 100644
+--- a/heal/src/glfs-heal.c
++++ b/heal/src/glfs-heal.c
+@@ -141,6 +141,20 @@ _is_possibly_healing (dict_t *xattr_rsp)
+         return _gf_false;
+ }
+ 
++static gf_boolean_t
++_is_in_split_brain (dict_t *xattr_rsp)
++{
++        int     ret = 0;
++        int     spb = 0;
++
++        ret = dict_get_int32 (xattr_rsp, "split-brain", &spb);
++        if ((ret == 0) && spb) {
++                return _gf_true;
++        }
++
++        return _gf_false;
++}
++
+ #define RESET_ENTRIES(loc, shf, ope, pth, rsp, grsp) \
+         do {                                    \
+                 loc_wipe (&loc);                \
+@@ -240,9 +254,10 @@ glfsh_process_entries (xlator_t *xl, loc_t *parentloc, gf_dirent_t *entries,
+                         continue;
+                 }
+ 
+-                ret = dict_get_int32 (xattr_rsp, "sh-failed", &sh_failed);
+-
+-                sh_pending = _is_self_heal_pending (xattr_rsp);
++                if (xattr_rsp) {
++                        ret = dict_get_int32 (xattr_rsp, "sh-failed", &sh_failed);
++                        sh_pending = _is_self_heal_pending (xattr_rsp);
++                }
+                 //File/dir is undergoing I/O
+                 if (!op_errno && !sh_failed && !sh_pending)
+                         continue;
+@@ -260,7 +275,10 @@ glfsh_process_entries (xlator_t *xl, loc_t *parentloc, gf_dirent_t *entries,
+                 ret = dict_get_str (getxattr_rsp, GFID_TO_PATH_KEY, &path);
+ 
+                 (*num_entries)++;
+-                if (_is_possibly_healing (xattr_rsp)) {
++                if (xattr_rsp && _is_in_split_brain (xattr_rsp)) {
++                        printf ("%s - Is in split-brain\n",
++                                path ? path : uuid_utoa (entry_loc.gfid));
++                } else if (xattr_rsp && _is_possibly_healing (xattr_rsp)) {
+                         printf ("%s - Possibly undergoing heal\n",
+                                 path ? path : uuid_utoa (entry_loc.gfid));
+                 } else {
+diff --git a/xlators/cluster/afr/src/afr-common.c b/xlators/cluster/afr/src/afr-common.c
+index fae3d4c..59b8038 100644
+--- a/xlators/cluster/afr/src/afr-common.c
++++ b/xlators/cluster/afr/src/afr-common.c
+@@ -1923,6 +1923,12 @@ afr_self_heal_lookup_unwind (call_frame_t *frame, xlator_t *this,
+         if (!xattr)
+                 goto out;
+ 
++        if (afr_is_split_brain (this, local->cont.lookup.inode)) {
++                ret = dict_set_int32 (xattr, "split-brain", 1);
++                if (ret)
++                        gf_log (this->name, GF_LOG_ERROR, "%s: Failed to set "
++                                "split-brain to true", local->loc.path);
++        }
+         if (sh_failed) {
+                 ret = dict_set_int32 (xattr, "sh-failed", sh_failed);
+                 if (ret)
+diff --git a/xlators/cluster/afr/src/afr-self-heal-common.c b/xlators/cluster/afr/src/afr-self-heal-common.c
+index 5f47a4c..d50914f 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-common.c
++++ b/xlators/cluster/afr/src/afr-self-heal-common.c
+@@ -216,12 +216,15 @@ out:
+ 
+ void
+ afr_sh_print_split_brain_log (int32_t *pending_matrix[], xlator_t *this,
+-                              const char *loc, afr_spb_state_t mdata,
++                              afr_local_t *local, afr_spb_state_t mdata,
+                               afr_spb_state_t data)
+ {
+         char *buf      = NULL;
+         char *free_ptr = NULL;
+ 
++        if (local->self_heal.dry_run)
++                return;
++
+         buf = afr_get_pending_matrix_str (pending_matrix, this);
+         if (buf)
+                 free_ptr = buf;
+@@ -231,8 +234,8 @@ afr_sh_print_split_brain_log (int32_t *pending_matrix[], xlator_t *this,
+ 
+         gf_log (this->name, GF_LOG_ERROR, "Unable to self-heal contents of '%s'"
+                 " (possible %s split-brain). Please delete the file from all but "
+-                "the preferred subvolume.%s", loc, (mdata == SPB) ? "metadata" :
+-                (data == SPB) ? "data" : "", buf);
++                "the preferred subvolume.%s", local->loc.path, (mdata == SPB) ?
++                "metadata" : (data == SPB) ? "data" : "", buf);
+         GF_FREE (free_ptr);
+         return;
+ }
+diff --git a/xlators/cluster/afr/src/afr-self-heal-common.h b/xlators/cluster/afr/src/afr-self-heal-common.h
+index 4c92611..8c01168 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-common.h
++++ b/xlators/cluster/afr/src/afr-self-heal-common.h
+@@ -30,7 +30,7 @@ afr_sh_print_pending_matrix (int32_t *pending_matrix[], xlator_t *this);
+ 
+ void
+ afr_sh_print_split_brain_log (int32_t *pending_matrix[], xlator_t *this,
+-                              const char *loc, afr_spb_state_t mdata,
++                              afr_local_t *local, afr_spb_state_t mdata,
+                               afr_spb_state_t data);
+ 
+ int
+diff --git a/xlators/cluster/afr/src/afr-self-heal-data.c b/xlators/cluster/afr/src/afr-self-heal-data.c
+index 712ca55..f85e724 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-data.c
++++ b/xlators/cluster/afr/src/afr-self-heal-data.c
+@@ -1014,7 +1014,7 @@ afr_sh_data_fxattrop_fstat_done (call_frame_t *frame, xlator_t *this)
+ 
+         if (nsources == -1) {
+                 afr_sh_print_split_brain_log (sh->pending_matrix, this,
+-                                              local->loc.path, DONT_KNOW,
++                                              local, DONT_KNOW,
+                                               SPB);
+                 afr_set_split_brain (this, sh->inode, DONT_KNOW, SPB);
+ 
+diff --git a/xlators/cluster/afr/src/afr-self-heal-metadata.c b/xlators/cluster/afr/src/afr-self-heal-metadata.c
+index 2e8c076..829a8c3 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-metadata.c
++++ b/xlators/cluster/afr/src/afr-self-heal-metadata.c
+@@ -486,7 +486,7 @@ afr_sh_metadata_fix (call_frame_t *frame, xlator_t *this,
+ 
+         if (nsources == -1) {
+                 afr_sh_print_split_brain_log (sh->pending_matrix, this,
+-                                              local->loc.path, SPB,
++                                              local, SPB,
+                                               DONT_KNOW);
+                 afr_set_split_brain (this, sh->inode, SPB, DONT_KNOW);
+                 afr_sh_metadata_fail (frame, this);
+-- 
+2.2.1
+

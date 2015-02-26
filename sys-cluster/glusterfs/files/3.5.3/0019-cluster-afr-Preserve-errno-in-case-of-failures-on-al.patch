@@ -1,0 +1,45 @@
+From 72e84c17240bc46c1a040cb585c4a3c89c58903d Mon Sep 17 00:00:00 2001
+From: Pranith Kumar K <pkarampu@redhat.com>
+Date: Mon, 10 Nov 2014 16:19:34 +0530
+Subject: [PATCH 19/25] cluster/afr: Preserve errno in case of failures on all
+ subvols
+
+        Partly backported from http://review.gluster.org/8984
+
+Problem:
+When quorum is enabled and the fop fails on all the subvolumes,
+op_errno is set to EROFS which overrides the actual errno returned
+from bricks.
+
+Fix:
+Don't override the errno when fop fails on all subvols.
+
+PS: Afr-v2 code differs from afr-v1 so that pre-op part of code doesn't apply
+
+Change-Id: I61e57bbf1a69407230ec172a983de18d1c624fd2
+BUG: 1162150
+Signed-off-by: Pranith Kumar K <pkarampu@redhat.com>
+Reviewed-on: http://review.gluster.org/9088
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/cluster/afr/src/afr-transaction.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/xlators/cluster/afr/src/afr-transaction.c b/xlators/cluster/afr/src/afr-transaction.c
+index 01839f5..cf7d6bf 100644
+--- a/xlators/cluster/afr/src/afr-transaction.c
++++ b/xlators/cluster/afr/src/afr-transaction.c
+@@ -722,6 +722,9 @@ afr_handle_quorum (call_frame_t *frame)
+ 
+         if (priv->quorum_count == 0)
+                 return;
++        /* If the fop already failed return right away to preserve errno */
++        if (local->op_ret == -1)
++                return;
+ 
+         /*
+          * Network split may happen just after the fops are unwound, so check
+-- 
+2.2.1
+

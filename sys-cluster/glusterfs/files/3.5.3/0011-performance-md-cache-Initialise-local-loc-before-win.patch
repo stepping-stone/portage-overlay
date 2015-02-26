@@ -1,0 +1,46 @@
+From c0419befa9d0d470a921863cd700d778ce5da194 Mon Sep 17 00:00:00 2001
+From: Krutika Dhananjay <kdhananj@redhat.com>
+Date: Thu, 22 Jan 2015 12:57:10 +0530
+Subject: [PATCH 11/25] performance/md-cache: Initialise local->loc before
+ winding nameless lookup
+
+        Backport of: http://review.gluster.org/9476
+
+That way, in the cbk, the latest values are updated in the cache.
+
+Change-Id: I3f8701d7043f06f512364e20c4456f254776cba7
+BUG: 1186121
+Signed-off-by: Krutika Dhananjay <kdhananj@redhat.com>
+Reviewed-on: http://review.gluster.org/9497
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ xlators/performance/md-cache/src/md-cache.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/xlators/performance/md-cache/src/md-cache.c b/xlators/performance/md-cache/src/md-cache.c
+index ef156e3..e23bef0 100644
+--- a/xlators/performance/md-cache/src/md-cache.c
++++ b/xlators/performance/md-cache/src/md-cache.c
+@@ -800,15 +800,15 @@ mdc_lookup (call_frame_t *frame, xlator_t *this, loc_t *loc,
+         if (!local)
+                 goto uncached;
+ 
++        loc_copy (&local->loc, loc);
++
+ 	if (!loc->name)
+-		/* A nameless discovery is dangerous to cache. We
++		/* A nameless discovery is dangerous to serve from cache. We
+ 		   perform nameless lookup with the intention of
+ 		   re-establishing an inode "properly"
+ 		*/
+ 		goto uncached;
+ 
+-        loc_copy (&local->loc, loc);
+-
+         ret = mdc_inode_iatt_get (this, loc->inode, &stbuf);
+         if (ret != 0)
+                 goto uncached;
+-- 
+2.2.1
+

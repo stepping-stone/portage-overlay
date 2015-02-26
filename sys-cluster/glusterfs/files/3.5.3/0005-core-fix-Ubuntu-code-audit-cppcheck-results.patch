@@ -1,0 +1,516 @@
+From 8ae5046eb6c86840ccecefbade1695e68055de33 Mon Sep 17 00:00:00 2001
+From: "Kaleb S. KEITHLEY" <kkeithle@redhat.com>
+Date: Tue, 29 Apr 2014 15:12:46 -0400
+Subject: [PATCH 05/25] core: fix Ubuntu code audit (cppcheck) results
+
+See http://review.gluster.org/#/c/7583/ BZ 1086460
+
+AFAICT these are false positives:
+
+[geo-replication/src/gsyncd.c:99]: (error) Memory leak: str
+[geo-replication/src/gsyncd.c:395]: (error) Memory leak: argv
+[xlators/nfs/server/src/nlm4.c:1200]: (error) Possible null pointer dereference: fde
+
+Program exits, resource leak not an issue
+[extras/geo-rep/gsync-sync-gfid.c:105]: (error) Resource leak: fp
+
+Test program:
+[extras/test/test-ffop.c:27]: (error) Buffer overrun possible for long command line arguments.
+
+Not built:
+[xlators/cluster/ha/src/ha.c:2699]: (error) Possible null pointer dereference: priv
+
+The remainder are fixed with this change-set:
+
+[heal/src/glfs-heal.c:357]: (error) Possible null pointer dereference: remote_subvol
+[libglusterfs/src/xlator.c:648]: (error) Uninitialized variable: gfid
+[libglusterfs/src/xlator.c:649]: (error) Uninitialized variable: gfid
+[xlators/cluster/afr/src/afr-inode-write.c:469]: (error) Possible null pointer dereference: frame
+[xlators/cluster/afr/src/afr-self-heal-common.c:1704]: (error) Possible null pointer dereference: local
+[xlators/cluster/dht/src/dht-rebalance.c:1643]: (error) Possible null pointer dereference: ctx
+[xlators/cluster/stripe/src/stripe.c:4963]: (error) Possible null pointer dereference: local
+[xlators/features/changelog/src/changelog.c:1464]: (error) Possible null pointer dereference: priv
+[xlators/mgmt/glusterd/src/glusterd-geo-rep.c:1656]: (error) Possible null pointer dereference: command
+[xlators/mgmt/glusterd/src/glusterd-replace-brick.c:914]: (error) Resource leak: file
+[xlators/mgmt/glusterd/src/glusterd-replace-brick.c:998]: (error) Resource leak: file
+[xlators/mgmt/glusterd/src/glusterd-sm.c:248]: (error) Possible null pointer dereference: new_ev_ctx
+[xlators/mgmt/glusterd/src/glusterd-store.c:1332]: (error) Possible null pointer dereference: handle
+[xlators/mgmt/glusterd/src/glusterd-utils.c:4706]: (error) Possible null pointer dereference: this
+[xlators/mgmt/glusterd/src/glusterd-utils.c:5613]: (error) Possible null pointer dereference: this
+[xlators/mgmt/glusterd/src/glusterd-utils.c:6342]: (error) Possible null pointer dereference: path_tokens
+[xlators/mgmt/glusterd/src/glusterd-utils.c:6343]: (error) Possible null pointer dereference: path_tokens
+[xlators/mount/fuse/src/fuse-bridge.c:4591]: (error) Uninitialized variable: finh
+[xlators/mount/fuse/src/fuse-bridge.c:3004]: (error) Possible null pointer dereference: state
+[xlators/nfs/server/src/nfs-common.c:89]: (error) Dangerous usage of 'volname' (strncpy doesn't always null-terminate it).
+[xlators/performance/quick-read/src/quick-read.c:585]: (error) Possible null pointer dereference: iobuf
+
+Rerunning cppcheck afterwards:
+
+As before, test program:
+[extras/test/test-ffop.c:27]: (error) Buffer overrun possible for long command line arguments.
+
+As before, believed to be false positive:
+[geo-replication/src/gsyncd.c:99]: (error) Memory leak: str
+[geo-replication/src/gsyncd.c:395]: (error) Memory leak: argv
+[xlators/nfs/server/src/nlm4.c:1200]: (error) Possible null pointer dereference: fde
+
+As before, not built:
+[xlators/cluster/ha/src/ha.c:2699]: (error) Possible null pointer dereference: priv
+
+False positive after fix:
+[heal/src/glfs-heal.c:356]: (error) Possible null pointer dereference: remote_subvol
+[xlators/cluster/stripe/src/stripe.c:4963]: (error) Possible null pointer dereference: local
+
+Change-Id: Ib3029d3223f5a13e2ac386a527d64d5ffe3ecb90
+BUG: 1092037
+Signed-off-by: Kaleb S. KEITHLEY <kkeithle@redhat.com>
+Reviewed-on: http://review.gluster.org/7605
+Tested-by: Gluster Build System <jenkins@build.gluster.com>
+Reviewed-by: Niels de Vos <ndevos@redhat.com>
+---
+ extras/geo-rep/gsync-sync-gfid.c                   |  1 +
+ heal/src/glfs-heal.c                               |  3 +--
+ libglusterfs/src/xlator.c                          |  3 ++-
+ xlators/cluster/afr/src/afr-self-heal-common.c     |  3 ++-
+ xlators/cluster/afr/src/afr.h                      | 10 ++++++----
+ xlators/cluster/dht/src/dht-rebalance.c            |  2 +-
+ xlators/cluster/stripe/src/stripe.c                | 14 ++++++++++----
+ xlators/features/changelog/src/changelog.c         | 16 +++++++++-------
+ xlators/mgmt/glusterd/src/glusterd-geo-rep.c       |  2 +-
+ xlators/mgmt/glusterd/src/glusterd-replace-brick.c | 14 ++++++++------
+ xlators/mgmt/glusterd/src/glusterd-sm.c            |  3 ++-
+ xlators/mgmt/glusterd/src/glusterd-store.c         |  4 ++--
+ xlators/mgmt/glusterd/src/glusterd-utils.c         | 21 +++++++++------------
+ xlators/mount/fuse/src/fuse-bridge.c               |  5 +++--
+ xlators/nfs/server/src/nfs-common.c                | 11 ++++-------
+ xlators/performance/quick-read/src/quick-read.c    | 13 +++----------
+ 16 files changed, 64 insertions(+), 61 deletions(-)
+
+diff --git a/extras/geo-rep/gsync-sync-gfid.c b/extras/geo-rep/gsync-sync-gfid.c
+index 3dea776..7158c0d 100644
+--- a/extras/geo-rep/gsync-sync-gfid.c
++++ b/extras/geo-rep/gsync-sync-gfid.c
+@@ -99,6 +99,7 @@ main (int argc, char *argv[])
+                 free (tmp); free (tmp1);
+                 blob = NULL;
+         }
++        fclose (fp);
+ 
+         ret = 0;
+ out:
+diff --git a/heal/src/glfs-heal.c b/heal/src/glfs-heal.c
+index 236361c..7d22e08 100644
+--- a/heal/src/glfs-heal.c
++++ b/heal/src/glfs-heal.c
+@@ -376,8 +376,7 @@ glfsh_print_brick_from_xl (xlator_t *xl)
+                 goto out;
+ 
+         ret = dict_get_str (xl->options, "remote-subvolume", &remote_subvol);
+-        if (ret < 0)
+-                goto out;
++
+ out:
+         if (ret < 0) {
+                 printf ("Brick - Not able to get brick information\n");
+diff --git a/libglusterfs/src/xlator.c b/libglusterfs/src/xlator.c
+index 9ce5240..2b737d2 100644
+--- a/libglusterfs/src/xlator.c
++++ b/libglusterfs/src/xlator.c
+@@ -644,7 +644,8 @@ out:
+ char*
+ loc_gfid_utoa (loc_t *loc)
+ {
+-        uuid_t gfid;
++        uuid_t gfid = {0,};
++
+         loc_gfid (loc, gfid);
+         return uuid_utoa (gfid);
+ }
+diff --git a/xlators/cluster/afr/src/afr-self-heal-common.c b/xlators/cluster/afr/src/afr-self-heal-common.c
+index d50914f..0e031f3 100644
+--- a/xlators/cluster/afr/src/afr-self-heal-common.c
++++ b/xlators/cluster/afr/src/afr-self-heal-common.c
+@@ -1681,6 +1681,8 @@ afr_sh_call_entry_expunge_remove (call_frame_t *frame, xlator_t *this,
+         int32_t         op_errno = 0;
+         int             ret = 0;
+ 
++        local = frame->local;
++
+         expunge_frame = copy_frame (frame);
+         if (!expunge_frame) {
+                 goto out;
+@@ -1688,7 +1690,6 @@ afr_sh_call_entry_expunge_remove (call_frame_t *frame, xlator_t *this,
+ 
+         AFR_LOCAL_ALLOC_OR_GOTO (expunge_local, out);
+ 
+-        local = frame->local;
+         sh = &local->self_heal;
+         expunge_frame->local = expunge_local;
+         expunge_sh = &expunge_local->self_heal;
+diff --git a/xlators/cluster/afr/src/afr.h b/xlators/cluster/afr/src/afr.h
+index c908495..87ad67c 100644
+--- a/xlators/cluster/afr/src/afr.h
++++ b/xlators/cluster/afr/src/afr.h
+@@ -1002,10 +1002,12 @@ afr_launch_openfd_self_heal (call_frame_t *frame, xlator_t *this, fd_t *fd);
+         do {                                                    \
+                 afr_local_t *__local = NULL;                    \
+                 xlator_t    *__this = NULL;                     \
+-                __local = frame->local;                         \
+-                __this = frame->this;                           \
+-                frame->local = NULL;                            \
+-                STACK_DESTROY (frame->root);                    \
++                if (frame) {                                    \
++                        __local = frame->local;                 \
++                        __this = frame->this;                   \
++                        frame->local = NULL;                    \
++                        STACK_DESTROY (frame->root);            \
++                }                                               \
+                 if (__local) {                                  \
+                         afr_local_cleanup (__local, __this);    \
+                         mem_put (__local);                      \
+diff --git a/xlators/cluster/dht/src/dht-rebalance.c b/xlators/cluster/dht/src/dht-rebalance.c
+index eda0172..7547627 100644
+--- a/xlators/cluster/dht/src/dht-rebalance.c
++++ b/xlators/cluster/dht/src/dht-rebalance.c
+@@ -1747,7 +1747,7 @@ out:
+         {
+                 status = dict_new ();
+                 gf_defrag_status_get (defrag, status);
+-                if (ctx->notify)
++                if (ctx && ctx->notify)
+                         ctx->notify (GF_EN_DEFRAG_STATUS, status);
+                 if (status)
+                         dict_unref (status);
+diff --git a/xlators/cluster/stripe/src/stripe.c b/xlators/cluster/stripe/src/stripe.c
+index be22327..63c75e1 100644
+--- a/xlators/cluster/stripe/src/stripe.c
++++ b/xlators/cluster/stripe/src/stripe.c
+@@ -4955,10 +4955,15 @@ stripe_readdirp_cbk (call_frame_t *frame, void *cookie, xlator_t *this,
+ out:
+         if (!count) {
+                 /* all entries are directories */
+-                frame->local = NULL;
+-                STRIPE_STACK_UNWIND (readdir, frame, local->op_ret,
+-                                     local->op_errno, &local->entries, NULL);
+-                gf_dirent_free (&local->entries);
++                if (frame)
++                        frame->local = NULL;
++                STRIPE_STACK_UNWIND (readdir, frame,
++                                     local ? local->op_ret : -1,
++                                     local ? local->op_errno : EINVAL,
++                                     local ? &local->entries : NULL,
++                                     NULL);
++                if (local)
++                        gf_dirent_free (&local->entries);
+                 stripe_local_wipe (local);
+                 mem_put (local);
+         }
+@@ -4967,6 +4972,7 @@ out:
+         return 0;
+ 
+ }
++
+ int32_t
+ stripe_readdirp (call_frame_t *frame, xlator_t *this,
+                  fd_t *fd, size_t size, off_t off, dict_t *xdata)
+diff --git a/xlators/features/changelog/src/changelog.c b/xlators/features/changelog/src/changelog.c
+index 5fe3b43..2f65534 100644
+--- a/xlators/features/changelog/src/changelog.c
++++ b/xlators/features/changelog/src/changelog.c
+@@ -1461,14 +1461,16 @@ init (xlator_t *this)
+         if (ret) {
+                 if (this->local_pool)
+                         mem_pool_destroy (this->local_pool);
+-                if (priv->cb) {
+-                        ret = priv->cb->dtor (this, &priv->cd);
+-                        if (ret)
+-                                gf_log (this->name, GF_LOG_ERROR,
+-                                        "error in cleanup during init()");
++                if (priv) {
++                        if (priv->cb) {
++                                ret = priv->cb->dtor (this, &priv->cd);
++                                if (ret)
++                                        gf_log (this->name, GF_LOG_ERROR,
++                                                "error in cleanup during init()");
++                        }
++                        GF_FREE (priv->changelog_brick);
++                        GF_FREE (priv->changelog_dir);
+                 }
+-                GF_FREE (priv->changelog_brick);
+-                GF_FREE (priv->changelog_dir);
+                 GF_FREE (priv);
+                 this->private = NULL;
+         } else
+diff --git a/xlators/mgmt/glusterd/src/glusterd-geo-rep.c b/xlators/mgmt/glusterd/src/glusterd-geo-rep.c
+index 44ab97a..ff217ea 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-geo-rep.c
++++ b/xlators/mgmt/glusterd/src/glusterd-geo-rep.c
+@@ -1653,7 +1653,7 @@ out:
+         if (ret) {
+                 if (errmsg[0] == '\0')
+                         snprintf (errmsg, sizeof (errmsg), "%s not found.",
+-                                  command);
++                                  command ? command : "<unknown>");
+                 *op_errstr = gf_strdup (errmsg);
+                 gf_log ("", GF_LOG_ERROR, "%s", errmsg);
+         }
+diff --git a/xlators/mgmt/glusterd/src/glusterd-replace-brick.c b/xlators/mgmt/glusterd/src/glusterd-replace-brick.c
+index 94b0383..4687076 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-replace-brick.c
++++ b/xlators/mgmt/glusterd/src/glusterd-replace-brick.c
+@@ -881,7 +881,7 @@ rb_generate_client_volfile (glusterd_volinfo_t *volinfo,
+                         "%s", strerror (errno));
+                 goto out;
+         }
+-        close (fd);
++        sys_close (fd);
+ 
+         file = fopen (filename, "w+");
+         if (!file) {
+@@ -905,12 +905,13 @@ rb_generate_client_volfile (glusterd_volinfo_t *volinfo,
+                  glusterd_auth_get_username (volinfo),
+                  glusterd_auth_get_password (volinfo));
+ 
+-        fclose (file);
+         GF_FREE (ttype);
+-
+         ret = 0;
+ 
+ out:
++        if (file)
++                fclose (file);
++
+         return ret;
+ }
+ 
+@@ -960,7 +961,7 @@ rb_generate_dst_brick_volfile (glusterd_volinfo_t *volinfo,
+                         "%s", strerror (errno));
+                 goto out;
+         }
+-        close (fd);
++        sys_close (fd);
+ 
+         file = fopen (filename, "w+");
+         if (!file) {
+@@ -990,11 +991,12 @@ rb_generate_dst_brick_volfile (glusterd_volinfo_t *volinfo,
+ 
+ 	GF_FREE (trans_type);
+ 
+-        fclose (file);
+-
+         ret = 0;
+ 
+ out:
++        if (file)
++	        fclose (file);
++
+         return ret;
+ }
+ 
+diff --git a/xlators/mgmt/glusterd/src/glusterd-sm.c b/xlators/mgmt/glusterd/src/glusterd-sm.c
+index 2e3eb79..df88f16 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-sm.c
++++ b/xlators/mgmt/glusterd/src/glusterd-sm.c
+@@ -245,7 +245,8 @@ glusterd_ac_reverse_probe_begin (glusterd_friend_sm_event_t *event, void *ctx)
+ out:
+         if (ret) {
+                 GF_FREE (new_event);
+-                GF_FREE (new_ev_ctx->hostname);
++                if (new_ev_ctx)
++                        GF_FREE (new_ev_ctx->hostname);
+                 GF_FREE (new_ev_ctx);
+         }
+         gf_log ("", GF_LOG_DEBUG, "returning with %d", ret);
+diff --git a/xlators/mgmt/glusterd/src/glusterd-store.c b/xlators/mgmt/glusterd/src/glusterd-store.c
+index 3a4b090..97cf6fe 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-store.c
++++ b/xlators/mgmt/glusterd/src/glusterd-store.c
+@@ -1329,10 +1329,10 @@ glusterd_store_global_info (xlator_t *this)
+ 
+         ret = gf_store_rename_tmppath (handle);
+ out:
+-        if (ret && (handle->fd > 0))
++        if (ret && handle && (handle->fd > 0))
+                 gf_store_unlink_tmppath (handle);
+ 
+-        if (handle->fd > 0) {
++        if (handle && handle->fd > 0) {
+                 close (handle->fd);
+                 handle->fd = 0;
+         }
+diff --git a/xlators/mgmt/glusterd/src/glusterd-utils.c b/xlators/mgmt/glusterd/src/glusterd-utils.c
+index 87d0818..f261a8d 100644
+--- a/xlators/mgmt/glusterd/src/glusterd-utils.c
++++ b/xlators/mgmt/glusterd/src/glusterd-utils.c
+@@ -4691,14 +4691,14 @@ glusterd_brick_start (glusterd_volinfo_t *volinfo,
+         xlator_t                                *this = NULL;
+         glusterd_conf_t                         *conf = NULL;
+ 
+-        if ((!brickinfo) || (!volinfo))
+-                goto out;
+-
+         this = THIS;
+         GF_ASSERT (this);
+         conf = this->private;
+         GF_ASSERT (conf);
+ 
++        if ((!brickinfo) || (!volinfo))
++                goto out;
++
+         if (uuid_is_null (brickinfo->uuid)) {
+                 ret = glusterd_resolve_brick (brickinfo);
+                 if (ret) {
+@@ -5621,14 +5621,14 @@ glusterd_brick_stop (glusterd_volinfo_t *volinfo,
+         xlator_t                                *this = NULL;
+         glusterd_conf_t                         *conf = NULL;
+ 
+-        if ((!brickinfo) || (!volinfo))
+-                goto out;
+-
+         this = THIS;
+         GF_ASSERT (this);
+         conf = this->private;
+         GF_ASSERT (conf);
+ 
++        if ((!brickinfo) || (!volinfo))
++                goto out;
++
+         if (uuid_is_null (brickinfo->uuid)) {
+                 ret = glusterd_resolve_brick (brickinfo);
+                 if (ret) {
+@@ -6384,18 +6384,15 @@ glusterd_get_local_brickpaths (glusterd_volinfo_t *volinfo, char **pathlist)
+ 
+         ret = count;
+ out:
+-        for (i = 0; i < count; i++) {
+-                GF_FREE (path_tokens[i]);
+-                path_tokens[i] = NULL;
+-        }
++        if (path_tokens)
++                for (i = 0; i < count; i++)
++                        GF_FREE (path_tokens[i]);
+ 
+         GF_FREE (path_tokens);
+-        path_tokens = NULL;
+ 
+         if (ret == 0) {
+                 gf_log ("", GF_LOG_DEBUG, "No Local Bricks Present.");
+                 GF_FREE (tmp_path_list);
+-                tmp_path_list = NULL;
+         }
+ 
+         gf_log ("", GF_LOG_DEBUG, "Returning %d", ret);
+diff --git a/xlators/mount/fuse/src/fuse-bridge.c b/xlators/mount/fuse/src/fuse-bridge.c
+index 8ea02bc..0bbdf86 100644
+--- a/xlators/mount/fuse/src/fuse-bridge.c
++++ b/xlators/mount/fuse/src/fuse-bridge.c
+@@ -3063,6 +3063,8 @@ fuse_setxattr (xlator_t *this, fuse_in_header_t *finh, void *msg)
+ 
+         priv = this->private;
+ 
++        GET_STATE (this, finh, state);
++
+ #ifdef GF_DARWIN_HOST_OS
+         if (fsi->position) {
+                 gf_log ("glusterfs-fuse", GF_LOG_WARNING,
+@@ -3121,7 +3123,6 @@ fuse_setxattr (xlator_t *this, fuse_in_header_t *finh, void *msg)
+                 return;
+         }
+ 
+-        GET_STATE (this, finh, state);
+         state->size = fsi->size;
+ 
+         fuse_resolve_inode_init (state, &state->resolve, finh->nodeid);
+@@ -4654,7 +4655,7 @@ fuse_thread_proc (void *data)
+         fuse_private_t           *priv = NULL;
+         ssize_t                   res = 0;
+         struct iobuf             *iobuf = NULL;
+-        fuse_in_header_t         *finh;
++        fuse_in_header_t         *finh = NULL;
+         struct iovec              iov_in[2];
+         void                     *msg = NULL;
+         const size_t              msg0_size = sizeof (*finh) + 128;
+diff --git a/xlators/nfs/server/src/nfs-common.c b/xlators/nfs/server/src/nfs-common.c
+index f74396e..07d5382 100644
+--- a/xlators/nfs/server/src/nfs-common.c
++++ b/xlators/nfs/server/src/nfs-common.c
+@@ -77,15 +77,15 @@ nfs_xlator_to_xlid (xlator_list_t *cl, xlator_t *xl)
+ xlator_t *
+ nfs_mntpath_to_xlator (xlator_list_t *cl, char *path)
+ {
+-        char            volname[MNTPATHLEN];
+-        char            *volptr = NULL;
++        char           *volname = NULL;
++        char           *volptr = NULL;
+         size_t          pathlen;
+-        xlator_t        *targetxl = NULL;
++        xlator_t       *targetxl = NULL;
+ 
+         if ((!cl) || (!path))
+                 return NULL;
+ 
+-        strncpy (volname, path, MNTPATHLEN);
++        volname = strdupa (path);
+         pathlen = strlen (volname);
+         gf_log (GF_NFS, GF_LOG_TRACE, "Subvolume search: %s", path);
+         if (volname[0] == '/')
+@@ -101,12 +101,9 @@ nfs_mntpath_to_xlator (xlator_list_t *cl, char *path)
+                         targetxl = cl->xlator;
+                         break;
+                 }
+-
+                 cl = cl->next;
+         }
+-
+         return targetxl;
+-
+ }
+ 
+ 
+diff --git a/xlators/performance/quick-read/src/quick-read.c b/xlators/performance/quick-read/src/quick-read.c
+index 445ea86..55c5afc 100644
+--- a/xlators/performance/quick-read/src/quick-read.c
++++ b/xlators/performance/quick-read/src/quick-read.c
+@@ -543,8 +543,6 @@ qr_readv_cached (call_frame_t *frame, qr_inode_t *qr_inode, size_t size,
+ 
+ 	LOCK (&table->lock);
+ 	{
+-		op_ret = -1;
+-
+ 		if (!qr_inode->data)
+ 			goto unlock;
+ 
+@@ -565,7 +563,6 @@ qr_readv_cached (call_frame_t *frame, qr_inode_t *qr_inode, size_t size,
+ 		iobref = iobref_new ();
+ 		if (!iobref) {
+ 			op_ret = -1;
+-			iobuf_unref (iobuf);
+ 			goto unlock;
+ 		}
+ 
+@@ -581,19 +578,15 @@ qr_readv_cached (call_frame_t *frame, qr_inode_t *qr_inode, size_t size,
+ unlock:
+ 	UNLOCK (&table->lock);
+ 
+-	if (op_ret > 0) {
++	if (op_ret >= 0) {
+ 		iov.iov_base = iobuf->ptr;
+ 		iov.iov_len = op_ret;
+-
+ 		STACK_UNWIND_STRICT (readv, frame, op_ret, 0, &iov, 1,
+ 				     &buf, iobref, xdata);
+ 	}
++	iobuf_unref (iobuf);
+ 
+-	if (iobuf)
+-		iobuf_unref (iobuf);
+-
+-	if (iobref)
+-		iobref_unref (iobref);
++	iobref_unref (iobref);
+ 
+ 	return op_ret;
+ }
+-- 
+2.2.1
+
