@@ -14,3 +14,6 @@ sys-apps/module-init-tools
 =dev-lang/perl-5.16*
 <app-emulation/libvirt-1.2.8
 <dev-perl/Sys-Virt-1.2.8
+
+# Stay on 1.2 branch for now
+>=app-emulation/libvirt-1.3
