@@ -24,3 +24,6 @@ app-admin/ulogd nfacct
 
 net-misc/iperf threads
 sys-block/fio glusterfs
+
+# Reuqired by app-emulation/libvirt
+net-firewall/iptables ipv6
