@@ -4,10 +4,8 @@ sys-apps/module-init-tools
 # Block newer versions of zabbix since we can't provision it yet
 >=net-analyzer/zabbix-2
 
-# mask newer kernels since we want to stay with 3.10 for now
->=sys-kernel/gentoo-sources-3.11
->=sys-kernel/linux-headers-3.11
->=sys-kernel/hardened-sources-3.15
+# Stay on 3.10 for now
+>sys-kernel/linux-headers-3.10
 
 # help the resolver in portage by masking some packages
 =dev-lang/perl-5.12*
