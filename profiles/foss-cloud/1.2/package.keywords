@@ -51,5 +51,7 @@ app-admin/mcelog amd64
 sys-fs/xfsprogs amd64
 sys-block/fio amd64
 
+sys-fs/mdadm amd64
+
 # Required for glibc >= 2.21-r2
 ~sys-devel/binutils-2.24 amd64
