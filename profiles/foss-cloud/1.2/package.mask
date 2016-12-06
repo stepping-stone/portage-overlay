@@ -16,5 +16,5 @@ sys-apps/module-init-tools
 # Stay on 1.2 branch for now
 >=app-emulation/libvirt-1.3
 
-# Stay on 1.5 branch for now
->=sys-cluster/glusterfs-3.6
+# Stay on version 3.8.6
+>=sys-cluster/glusterfs-3.8.7
