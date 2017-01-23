@@ -1,5 +1,5 @@
 #!/sbin/openrc-run
-# Copyright 1999-2012 Gentoo Foundation
+# Copyright 1999-2009 Gentoo Foundation
 # Distributed under the terms of the GNU General Public License v2
 # $Id$
 
@@ -59,7 +59,7 @@ checkconfig() {
 }
 
 start() {
-	local status daemon
+	local status
 
 	checkconfig || return 1
 
@@ -69,17 +69,15 @@ start() {
 	if [[ -z "${GLUSTERFS_MOUNTPOINT}" ]]
 	then
 		einfo "Starting in server mode ..."
-		daemon="glusterfsd"
 	else
 		einfo "Starting in client mode. Mounting filesystem ..."
-		daemon="glusterfs"
 	fi
 
 	if [[ -n "${GLUSTERFS_SERVER}" ]]
 	then
 		einfo "Using server supplied volume file"
 		start-stop-daemon --start --pidfile ${GLUSTERFS_PIDFILE} \
-			--exec /usr/sbin/${daemon} -- \
+			--exec /usr/sbin/glusterfsd -- \
 			--pid-file=${GLUSTERFS_PIDFILE} \
 			--log-file=${GLUSTERFS_LOGFILE} \
 			--volfile-server=${GLUSTERFS_SERVER} \
@@ -90,7 +88,7 @@ start() {
 	else
 		einfo "Using local volume file"
 		start-stop-daemon --start --pidfile ${GLUSTERFS_PIDFILE} \
-			--exec /usr/sbin/${daemon} -- \
+			--exec /usr/sbin/glusterfsd -- \
 			--pid-file=${GLUSTERFS_PIDFILE} \
 			--log-file=${GLUSTERFS_LOGFILE} \
 			--volfile=${GLUSTERFS_VOLFILE} \
