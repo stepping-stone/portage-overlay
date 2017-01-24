@@ -14,7 +14,11 @@ sys-apps/module-init-tools
 <dev-perl/Sys-Virt-1.2.8
 
 # Stay on 1.2 branch for now
->=app-emulation/libvirt-1.3
+#>=app-emulation/libvirt-1.3
+>app-emulation/libvirt-1.2.8
 
 # Stay on 3.8 branch for now
 >=sys-cluster/glusterfs-3.9
+
+# Stay on Qemu 2.1.X
+>=app-emulation/qemu-2.2
