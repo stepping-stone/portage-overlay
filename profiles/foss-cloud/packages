@@ -22,3 +22,6 @@
 *app-portage/layman
 *app-portage/gentoolkit
 *app-portage/eix
+
+*sys-process/iotop
+*sys-process/htop
