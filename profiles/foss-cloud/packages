@@ -20,3 +20,5 @@
 
 *dev-vcs/git
 *app-portage/layman
+*app-portage/gentoolkit
+*app-portage/eix
