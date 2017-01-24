@@ -55,3 +55,6 @@ sys-fs/mdadm amd64
 
 # Required for glibc >= 2.21-r2
 ~sys-devel/binutils-2.24 amd64
+
+# required by sys-cluster/glusterfs-3.8.8::foss-cloud
+=dev-libs/userspace-rcu-0.8.4 ~amd64

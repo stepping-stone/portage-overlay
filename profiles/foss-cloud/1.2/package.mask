@@ -15,7 +15,10 @@ sys-apps/module-init-tools
 
 # Stay on 1.2 branch for now
 #>=app-emulation/libvirt-1.3
->app-emulation/libvirt-1.2.8
+>=app-emulation/libvirt-1.2.9
+>virtual/stoney-cloud-1.2.10.8_rc4-r2
+>=dev-perl/Sys-Virt-1.2.9
+
 
 # Stay on 3.8 branch for now
 >=sys-cluster/glusterfs-3.9
