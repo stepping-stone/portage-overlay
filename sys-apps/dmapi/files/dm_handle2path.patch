@@ -1,0 +1,14 @@
+--- dmapiorig/libdm/dm_handle2path.c
++++ dmapi/libdm/dm_handle2path.c
+@@ -22,7 +22,12 @@
+ 
+ #include <mntent.h>
+ #include <dirent.h>
++#include <string.h>
+ #ifdef linux
++#include <sys/types.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++#include <unistd.h>
+ #include "getdents.h"
+ #endif
