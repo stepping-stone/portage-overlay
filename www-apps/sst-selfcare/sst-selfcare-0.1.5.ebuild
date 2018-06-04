@@ -68,6 +68,6 @@ src_install() {
 	fperms 770 /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
 	fowners root:apache /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
 
-	echo "CONFIG_PROTECT=\"/var/www/selfcare-${SLOT}/htdocs/protected/config\"" > "${T}/99${PN}"
+	echo "CONFIG_PROTECT=\"/var/www/selfcare-${SLOT}/htdocs/protected/config\"" > "${T}/99${PN}-${SLOT}"
 	doenvd "${T}/99${PN}-${SLOT}"
 }
