@@ -27,6 +27,7 @@ RESTRICT="fetch"
 S="${WORKDIR}/${MY_P}"
 
 src_configure() {
+	mv "${WORKDIR}/selfcare-v${PV}"-* "${WORKDIR}/${MY_P}"
 	sed -i \
 		-e "s|^\$yii =.*|\$yii='/usr/share/php/yii-${YII_PV}/framework/yii.php';|" \
 		index.php || die "sed failed"
@@ -64,5 +65,5 @@ src_install() {
 	fowners root:apache /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
 
 	echo "CONFIG_PROTECT=\"/var/www/selfcare-${SLOT}/htdocs/protected/config\"" > "${T}/99${PN}"
-	doenvd "${T}/99${PN}"
+	doenvd "${T}/99${PN}-${SLOT}"
 }
