@@ -26,8 +26,12 @@ RESTRICT="fetch"
 
 S="${WORKDIR}/${MY_P}"
 
-src_configure() {
+src_unpack() {
+	unpack ${A}
 	mv "${WORKDIR}/selfcare-v${PV}"-* "${WORKDIR}/${MY_P}"
+}
+
+src_configure() {
 	sed -i \
 		-e "s|^\$yii =.*|\$yii='/usr/share/php/yii-${YII_PV}/framework/yii.php';|" \
 		index.php || die "sed failed"
