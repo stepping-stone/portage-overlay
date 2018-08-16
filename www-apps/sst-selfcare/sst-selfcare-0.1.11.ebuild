@@ -8,11 +8,12 @@ MY_P="selfcare-${PV}"
 YII_PV="1.1.13"
 
 DESCRIPTION="stepping stone Selfcare Webinterface"
-HOMEPAGE="https://github.com/stepping-stone/selfcare"
-SRC_URI="https://github.com/stepping-stone/selfcare/archive/v${PV}.tar.gz -> ${P}.tar.gz"
+HOMEPAGE="https://git.stepping-stone.ch/stepping-stone/selfcare/"
+SRC_URI="https://git.stepping-stone.ch/stepping-stone/selfcare/repository/v${PV}/archive.tar.gz -> sst-selfcare-v${PV}.tar.gz"
+
 
 LICENSE="proprietary"
-SLOT="0"
+SLOT="0.1.11"
 KEYWORDS="amd64"
 IUSE=""
 
@@ -24,6 +25,11 @@ RDEPEND="virtual/httpd-php
 RESTRICT="fetch"
 
 S="${WORKDIR}/${MY_P}"
+
+src_unpack() {
+	unpack ${A}
+	mv "${WORKDIR}/selfcare-v${PV}"-* "${WORKDIR}/${MY_P}"
+}
 
 src_configure() {
 	sed -i \
@@ -52,16 +58,16 @@ src_install() {
 	dodoc README.md
 	rm -rf .gitignore .gitmodules .git framework
 	
-	insinto "/var/www/selfcare/htdocs"
+	insinto "/var/www/selfcare-${SLOT}/htdocs"
     doins -r .
 
-	fperms 640 "/var/www/selfcare/htdocs/protected/config"/main.php
-	fowners root:apache "/var/www/selfcare/htdocs/protected/config"/main.php
+	fperms 640 "/var/www/selfcare-${SLOT}/htdocs/protected/config"/main.php
+	fowners root:apache "/var/www/selfcare-${SLOT}/htdocs/protected/config"/main.php
 
-	keepdir /var/www/selfcare/htdocs/{assets,protected/runtime}
-	fperms 770 /var/www/selfcare/htdocs/{assets,protected/runtime}
-	fowners root:apache /var/www/selfcare/htdocs/{assets,protected/runtime}
+	keepdir /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
+	fperms 770 /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
+	fowners root:apache /var/www/selfcare-${SLOT}/htdocs/{assets,protected/runtime}
 
-	echo 'CONFIG_PROTECT="/var/www/selfcare/htdocs/protected/config"' > "${T}/99${PN}"
-	doenvd "${T}/99${PN}"
+	echo "CONFIG_PROTECT=\"/var/www/selfcare-${SLOT}/htdocs/protected/config\"" > "${T}/99${PN}-${SLOT}"
+	doenvd "${T}/99${PN}-${SLOT}"
 }
